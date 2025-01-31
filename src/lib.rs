@@ -208,7 +208,7 @@ impl StreamValidator {
 }
 
 #[pymodule]
-fn _satya(_py: Python, m: &PyModule) -> PyResult<()> {
+fn satya(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<StreamValidator>()?;
     Ok(())
 }

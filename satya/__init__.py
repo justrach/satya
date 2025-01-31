@@ -1,8 +1,9 @@
-# Configuration flag for string representation
 from typing import Any, Dict, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar
 from dataclasses import dataclass
-import _satya
 from itertools import islice
+
+# The Rust module is now directly available as the base module
+import satya as rust_satya
 
 T = TypeVar('T')
 
@@ -46,13 +47,13 @@ class ValidationResult(Generic[T]):
             return f"Valid: {self._value}"
         return f"Invalid: {'; '.join(str(err) for err in self._errors)}"
 
-class StreamValidator:
+class StreamValidator(rust_satya.StreamValidator):
     """A high-performance stream validator for JSON-like data"""
     
     def __init__(self, batch_size: int = 1000):
         """Initialize the validator with optional batch size for stream processing"""
-        self._validator = _satya.StreamValidator()
-        self._validator.set_batch_size(batch_size)
+        super().__init__()
+        self.set_batch_size(batch_size)
         self._type_registry = {}
         
     def define_type(self, type_name: str, fields: Dict[str, Union[Type, str]], 
@@ -361,4 +362,16 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
         model.__name__,
         {name: field.type for name, field in model.__fields__.items()},
         doc=model.__doc__
-    ) 
+    )
+
+__version__ = "0.1.19"
+
+__all__ = [
+    'StreamValidator',
+    'Model', 
+    'Field',
+    'List',
+    'Dict',
+    'ValidationError',
+    'ValidationResult'
+] 

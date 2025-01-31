@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: satya
+Version: 0.1.18
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Rust
+Classifier: Development Status :: 3 - Alpha
+Summary: A streaming data validator using Rust and PyO3
+Author: Rach Pradhan
+Requires-Python: >=3.7
