@@ -1,0 +1,12 @@
+[package]
+name = "satya"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "_satya"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+serde = { version = "1.0", features = ["derive"] } 
