@@ -67,6 +67,10 @@ print(user.id)
 
 Our benchmarks show significant performance improvements over existing solutions:
 
+<p align="center">
+  <img src="benchmark_results.png" alt="Satya Benchmark Results" width="800"/>
+</p>
+
 ### 📊 Large Dataset Processing (5M records)
 - **Satya:** 207,321 items/second
 - **Pydantic:** 72,302 items/second
@@ -78,6 +82,8 @@ Our benchmarks show significant performance improvements over existing solutions
 - **Pydantic:** 1,323 requests/second
 - **Average latency improvement:** 134.4x
 - **P99 latency improvement:** 134.4x
+
+> **Note:** All benchmarks were run on identical hardware using standardized test cases. Your results may vary depending on your specific use case and data structure complexity.
 
 ## 🎯 Key Features
 
