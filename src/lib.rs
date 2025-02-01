@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
-#[pyclass]
-struct StreamValidator {
+#[pyclass(name = "StreamValidatorCore")]
+struct StreamValidatorCore {
     schema: HashMap<String, FieldValidator>,
     batch_size: usize,
     custom_types: HashMap<String, HashMap<String, FieldValidator>>,
@@ -25,10 +25,10 @@ enum FieldType {
 }
 
 #[pymethods]
-impl StreamValidator {
+impl StreamValidatorCore {
     #[new]
     fn new() -> Self {
-        StreamValidator {
+        StreamValidatorCore {
             schema: HashMap::new(),
             batch_size: 1000,
             custom_types: HashMap::new(),
@@ -113,7 +113,7 @@ impl StreamValidator {
 }
 
 // Private implementation - not exposed to Python
-impl StreamValidator {
+impl StreamValidatorCore {
     fn parse_field_type(&self, field_type: &str) -> PyResult<FieldType> {
         // First check for primitive types
         match field_type {
@@ -209,6 +209,6 @@ impl StreamValidator {
 
 #[pymodule]
 fn _satya(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<StreamValidator>()?;
+    m.add_class::<StreamValidatorCore>()?;
     Ok(())
 }

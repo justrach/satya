@@ -4,9 +4,9 @@ build-backend = "maturin"
 
 [project]
 name = "satya"
-version = "0.1.0"
+version = "0.2.1"
 description = "A streaming data validator using Rust and PyO3"
-authors = [{ name = "Your Name" }]
+authors = [{ name = "Rach Pradhan" }]
 requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -16,5 +16,5 @@ classifiers = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-python-source = "satya"
-module-name = "_satya" 
+python-source = "src"
+module-name = "satya._satya"

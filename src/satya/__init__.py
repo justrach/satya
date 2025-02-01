@@ -1,8 +1,10 @@
 # Configuration flag for string representation
 from typing import Any, Dict, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar
 from dataclasses import dataclass
-import _satya
+from . import _satya
 from itertools import islice
+from ._satya import StreamValidatorCore
+from .validator import StreamValidator
 
 T = TypeVar('T')
 
@@ -51,7 +53,7 @@ class StreamValidator:
     
     def __init__(self, batch_size: int = 1000):
         """Initialize the validator with optional batch size for stream processing"""
-        self._validator = _satya.StreamValidator()
+        self._validator = _satya.StreamValidatorCore()
         self._validator.set_batch_size(batch_size)
         self._type_registry = {}
         
@@ -205,9 +207,11 @@ class StreamValidator:
             return field_type.__forward_arg__
         
         # Handle Model classes
-        if isinstance(field_type, type) and hasattr(field_type, '__fields__'):
+        if isinstance(field_type, type) and issubclass(field_type, Model):
+            # Return the model class name as a custom type
             return field_type.__name__
         
+        # Handle primitive types
         type_str = type_map.get(field_type)
         if type_str is None:
             raise ValueError(f"Unsupported type: {field_type}")
@@ -353,7 +357,13 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
     # Register nested models first
     for field in model.__fields__.values():
         field_type = field.type
-        if isinstance(field_type, type) and issubclass(field_type, Model):
+        # Handle List[Model] case
+        if get_origin(field_type) is list:
+            inner_type = get_args(field_type)[0]
+            if isinstance(inner_type, type) and issubclass(inner_type, Model):
+                _register_model(validator, inner_type, path + [model.__name__])
+        # Handle direct Model case
+        elif isinstance(field_type, type) and issubclass(field_type, Model):
             _register_model(validator, field_type, path + [model.__name__])
     
     # Register this model
@@ -361,4 +371,6 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
         model.__name__,
         {name: field.type for name, field in model.__fields__.items()},
         doc=model.__doc__
-    ) 
+    )
+
+__all__ = ['StreamValidator'] 
