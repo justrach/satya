@@ -8,7 +8,7 @@
 [![PyPI version](https://badge.fury.io/py/satya.svg)](https://badge.fury.io/py/satya)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Versions](https://img.shields.io/pypi/pyversions/satya.svg)](https://pypi.org/project/satya/)
-[![Downloads](https://pepy.tech/badge/satya)](https://pepy.tech/project/satya)
+<!-- [![Downloads](https://pepy.tech/badge/satya)](https://pepy.tech/project/satya) -->
 
 </div>
 
@@ -37,6 +37,30 @@ class User(Model):
     name: str = Field(description="User name")
     email: str = Field(description="Email address")
     active: bool = Field(default=True)
+```
+## Example 2:
+
+```python 
+from typing import Optional
+from satya import Model, Field, List
+
+# Enable pretty printing for this module
+Model.PRETTY_REPR = True
+
+class User(Model):
+    id: int
+    name: str = Field(default='John Doe')
+    signup_ts: Optional[str] = Field(required=False)  # Using str for datetime
+    friends: List[int] = Field(default=[])
+
+external_data = {'id': '123', 'signup_ts': '2017-06-01 12:22', 'friends': [1, '2', b'3']}
+validator = User.validator()
+result = validator.validate(external_data)
+user = User(**result.value)
+print(user)
+#> User(id=123, name='John Doe', signup_ts='2017-06-01 12:22', friends=[1, 2, 3])
+print(user.id)
+#> 123
 ```
 
 ## Performance:
@@ -94,7 +118,7 @@ MIT License
 **Note:** Performance numbers are from initial benchmarks and may vary based on use case and data structure complexity.
 
 ## Contact:
-- **GitHub Issues:** [repository-url/issues](repository-url/issues)
+- **GitHub Issues:** [repository-url/issues](https://github.com/rachpradhan/satya/issues)
 - **Author:** Rach Pradhan
 
 **Remember:** Satya is designed for scenarios where validation performance is critical. For general use cases, especially where features and ecosystem compatibility are more important than raw speed, Pydantic remains an excellent choice.
