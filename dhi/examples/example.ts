@@ -1,46 +1,75 @@
-import { createType } from '../src';
+import { dhi } from '../src';
 
-async function main() {
-    try {
-        // Create base types
-        const string = await createType<string>();
-        const number = await createType<number>();
-        const boolean = await createType<boolean>();
+async function example() {
+    // Primitive types
+    const stringSchema = await dhi.string();
+    const numberSchema = await dhi.number();
+    const booleanSchema = await dhi.boolean();
+    const dateSchema = await dhi.date();
+    const bigintSchema = await dhi.bigint();
+    const symbolSchema = await dhi.symbol();
 
-        // Create a user schema
-        const UserSchema = (await createType<any>()).object({
-            name: string.string(),
-            age: number.number(),
-            isAdmin: boolean.boolean(),
-            tags: (await createType<string[]>()).array(string.string())
-        });
+    // Empty types
+    const undefinedSchema = await dhi.undefined();
+    const nullSchema = await dhi.null();
+    const voidSchema = await dhi.void();
 
-        // Valid data
-        const validUser = {
-            name: "John Doe",
-            age: 30,
-            isAdmin: true,
-            tags: ["user", "premium"]
-        };
+    // Catch-all types
+    const anySchema = await dhi.any();
+    const unknownSchema = await dhi.unknown();
 
-        // Invalid data
-        const invalidUser = {
-            name: 123,  // should be string
-            age: "30",  // should be number
-            isAdmin: "yes",  // should be boolean
-            tags: "tags"  // should be array
-        };
+    // Never type
+    const neverSchema = await dhi.never();
 
-        // Test validation
-        console.log("\nValidating valid user:");
-        console.log(UserSchema.validate(validUser));
+    // Complex types
+    const arraySchema = await dhi.array(await dhi.string());
+    const recordSchema = await dhi.record<string, number>(await dhi.number());
 
-        console.log("\nValidating invalid user:");
-        console.log(UserSchema.validate(invalidUser));
-    } catch (error) {
-        console.error("Error:", error);
-    }
+    // Object with optional and nullable fields
+    const UserSchema = await dhi.object({
+        id: await dhi.string(),
+        name: await dhi.string(),
+        age: await dhi.optional(await dhi.number()),
+        email: await dhi.nullable(await dhi.string()),
+        createdAt: await dhi.date(),
+        metadata: await dhi.record<string, any>(await dhi.any()),
+        tags: await dhi.array(await dhi.string()),
+        settings: await dhi.object({
+            theme: await dhi.string(),
+            notifications: await dhi.boolean(),
+            preferences: await dhi.record<string, unknown>(await dhi.unknown())
+        })
+    });
+
+    // Validation examples
+    const validUser = {
+        id: "123",
+        name: "John Doe",
+        age: 30, // optional
+        email: null, // nullable
+        createdAt: new Date(),
+        metadata: {
+            lastLogin: "2024-01-01",
+            visits: 42
+        },
+        tags: ["user", "premium"],
+        settings: {
+            theme: "dark",
+            notifications: true,
+            preferences: {
+                language: "en",
+                timezone: "UTC"
+            }
+        }
+    };
+
+    const result = UserSchema.validate(validUser);
+    console.log("Validation result:", result);
+
+    // Batch validation
+    const users = Array.from({ length: 1000 }, () => validUser);
+    const results = UserSchema.validate_batch(users);
+    console.log("Batch validation results:", results);
 }
 
-// Run with Bun
-main(); 
+example().catch(console.error); 

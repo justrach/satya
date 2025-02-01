@@ -6,7 +6,7 @@ const BASE_URL = 'http://localhost:3000';
 // Test configuration
 export const options = {
     stages: [
-        { duration: '30s', target: 100000 }, // Ramp up to 100 users
+        { duration: '30s', target: 100 }, // Ramp up to 100 users
         { duration: '2s', target: 100 },  // Stay at 100 for 1 minute
         { duration: '30s', target: 200 }, // Ramp up to 200
         { duration: '1m', target: 200 },  // Stay at 200 for 1 minute

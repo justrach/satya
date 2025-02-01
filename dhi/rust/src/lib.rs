@@ -30,8 +30,19 @@ enum FieldType {
     Number,
     Boolean,
     Array(Box<FieldType>),
-    Object(HashMap<String, FieldValidator>),  // Changed this to hold nested fields
+    Object(HashMap<String, FieldValidator>),
     Custom(String),
+    Any,
+    Record(Box<FieldType>),
+    Date,
+    BigInt,      // Add BigInt
+    Symbol,      // Add Symbol
+    Undefined,   // Add Undefined
+    Null,        // Add Null
+    Void,        // Add Void
+    Unknown,     // Add Unknown
+    Never,       // Add Never
+    Enum(Vec<String>),  // Add Enum type
 }
 
 #[wasm_bindgen]
@@ -274,11 +285,29 @@ impl DhiCore {
             "string" => Ok(FieldType::String),
             "number" => Ok(FieldType::Number),
             "boolean" => Ok(FieldType::Boolean),
-            "object" => Ok(FieldType::Object(HashMap::new())),  // Handle object type directly
+            "object" => Ok(FieldType::Object(HashMap::new())),
+            "record" => Ok(FieldType::Record(Box::new(FieldType::Any))),
+            "date" => Ok(FieldType::Date),
+            "bigint" => Ok(FieldType::BigInt),
+            "symbol" => Ok(FieldType::Symbol),
+            "undefined" => Ok(FieldType::Undefined),
+            "null" => Ok(FieldType::Null),
+            "void" => Ok(FieldType::Void),
+            "unknown" => Ok(FieldType::Unknown),
+            "never" => Ok(FieldType::Never),
             _ => {
+                if let Some(values) = field_type.strip_prefix("enum:") {
+                    return Ok(FieldType::Enum(
+                        values.split(',').map(String::from).collect()
+                    ));
+                }
                 if let Some(inner_type) = field_type.strip_prefix("Array<").and_then(|s| s.strip_suffix(">")) {
                     let inner = self.parse_field_type(inner_type)?;
                     return Ok(FieldType::Array(Box::new(inner)));
+                }
+                if let Some(inner_type) = field_type.strip_prefix("Record<").and_then(|s| s.strip_suffix(">")) {
+                    let inner = self.parse_field_type(inner_type)?;
+                    return Ok(FieldType::Record(Box::new(inner)));
                 }
                 if self.custom_types.contains_key(field_type) {
                     return Ok(FieldType::Custom(field_type.to_string()));
@@ -296,16 +325,19 @@ impl DhiCore {
                 if !value.is_string() {
                     return Err(JsValue::from_bool(false));
                 }
+                Ok(())
             }
             FieldType::Number => {
                 if value.as_f64().is_none() {
                     return Err(JsValue::from_bool(false));
                 }
+                Ok(())
             }
             FieldType::Boolean => {
                 if value.as_bool().is_none() {
                     return Err(JsValue::from_bool(false));
                 }
+                Ok(())
             }
             FieldType::Array(item_type) => {
                 let array = value.dyn_ref::<Array>()
@@ -315,16 +347,109 @@ impl DhiCore {
                     let item = array.get(i);
                     self.validate_value(&item, item_type)?;
                 }
+                Ok(())
             }
             FieldType::Object(nested_schema) => {
-                self.validate_object(value, nested_schema)?;
+                self.validate_object(value, nested_schema)
             }
             FieldType::Custom(type_name) => {
                 if let Some(custom_type) = self.custom_types.get(type_name) {
-                    self.validate_object(value, custom_type)?;
+                    self.validate_object(value, custom_type)
+                } else {
+                    Ok(())
+                }
+            }
+            FieldType::Record(value_type) => {
+                let obj = value.dyn_ref::<Object>()
+                    .ok_or_else(|| JsValue::from_bool(false))?;
+                
+                let entries = Object::entries(obj);
+                for i in 0..entries.length() {
+                    let entry = entries.get(i);
+                    let value = Reflect::get(&entry, &JsValue::from(1))?;
+                    self.validate_value(&value, value_type)?;
+                }
+                Ok(())
+            }
+            FieldType::Date => {
+                // Check if value is a Date object
+                if !value.is_instance_of::<js_sys::Date>() {
+                    return Err(JsValue::from_bool(false));
+                }
+                Ok(())
+            }
+            FieldType::BigInt => {
+                if !value.is_bigint() {
+                    return Err(JsValue::from_bool(false));
+                }
+                Ok(())
+            }
+            FieldType::Symbol => {
+                if !value.is_symbol() {
+                    return Err(JsValue::from_bool(false));
+                }
+                Ok(())
+            }
+            FieldType::Undefined => {
+                if !value.is_undefined() {
+                    return Err(JsValue::from_bool(false));
+                }
+                Ok(())
+            }
+            FieldType::Null => {
+                if !value.is_null() {
+                    return Err(JsValue::from_bool(false));
+                }
+                Ok(())
+            }
+            FieldType::Void => {
+                if !value.is_undefined() {
+                    return Err(JsValue::from_bool(false));
+                }
+                Ok(())
+            }
+            FieldType::Unknown => Ok(()), // accepts any value
+            FieldType::Never => Err(JsValue::from_bool(false)), // always fails validation
+            FieldType::Any => Ok(()),
+            FieldType::Enum(allowed_values) => {
+                if let Some(str_val) = value.as_string() {
+                    if allowed_values.contains(&str_val) {
+                        Ok(())
+                    } else {
+                        Err(JsValue::from_bool(false))
+                    }
+                } else {
+                    Err(JsValue::from_bool(false))
                 }
             }
         }
-        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn set_optional(&mut self, optional: bool) {
+        if let Some(last_field) = self.schema.iter_mut().last() {
+            last_field.1.required = !optional;
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn set_nullable(&mut self, nullable: bool) {
+        if let Some(last_field) = self.schema.iter_mut().last() {
+            // TODO: Implement nullable logic
+            last_field.1.required = !nullable;
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn set_value_type(&mut self, value_type: &str) {
+        if let Some(last_field) = self.schema.iter_mut().last() {
+            last_field.1.field_type = match value_type {
+                "string" => FieldType::String,
+                "number" => FieldType::Number,
+                "boolean" => FieldType::Boolean,
+                // Add other types as needed
+                _ => FieldType::Any,
+            };
+        }
     }
 } 

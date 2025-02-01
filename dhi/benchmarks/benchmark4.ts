@@ -4,6 +4,10 @@ import { createType } from '../src';
 
 const app = new Hono();
 
+// Create validators once at startup
+let DhiOrderSchema: any;
+let ZodOrderSchema: any;
+
 async function setupValidators() {
     // Common sub-schemas
     const string = await createType<string>();
@@ -239,16 +243,24 @@ function generateOrder(orderId: string) {
     };
 }
 
-// Setup routes
+// Initialize validators and run benchmark
+setupValidators().then(schemas => {
+    DhiOrderSchema = schemas.DhiOrderSchema;
+    ZodOrderSchema = schemas.ZodOrderSchema;
+    DhiOrderSchema.setDebug(false);
+
+    // Run benchmark after validators are ready
+    main().catch(console.error);
+});
+
+// Setup routes with cached validators
 app.post('/api/dhi/orders', async (c) => {
-    const { DhiOrderSchema } = await setupValidators();
     const body = await c.req.json();
     const result = DhiOrderSchema.validate(body);
     return c.json({ success: result.success });
 });
 
 app.post('/api/zod/orders', async (c) => {
-    const { ZodOrderSchema } = await setupValidators();
     const body = await c.req.json();
     const result = ZodOrderSchema.safeParse(body);
     return c.json({ success: result.success });
@@ -261,35 +273,55 @@ export default {
 };
 
 async function main() {
-    const { DhiOrderSchema, ZodOrderSchema } = await setupValidators();
-    DhiOrderSchema.setDebug(false);
-
-    // Run benchmark
     console.log('\nStarting benchmark...');
     const iterations = 1000000;
+    const batchSize = 100000;
     const validOrders = Array.from({ length: iterations }, (_, i) => 
         generateOrder(`order_${i}`)
     );
 
-    console.log(`\nBenchmarking ${iterations} complex order validations:`);
+    console.log(`\nBenchmarking ${iterations.toLocaleString()} complex order validations:`);
 
     // DHI Benchmark
+    console.log('\nDHI Progress:');
     const dhiStart = performance.now();
-    const dhiResults = DhiOrderSchema.validate_batch(validOrders);
+    let processedDhi = 0;
+    
+    for (let i = 0; i < iterations; i += batchSize) {
+        const batch = validOrders.slice(i, i + batchSize);
+        const batchStart = performance.now();
+        DhiOrderSchema.validate_batch(batch);
+        const batchTime = performance.now() - batchStart;
+        processedDhi += batch.length;
+        
+        const speed = (batch.length / (batchTime / 1000)).toFixed(0);
+        const progress = ((processedDhi / iterations) * 100).toFixed(1);
+        console.log(`${progress}% complete - Current speed: ${speed.toLocaleString()} validations/sec`);
+    }
     const dhiTime = performance.now() - dhiStart;
 
     // Zod Benchmark
+    console.log('\nZod Progress:');
     const zodStart = performance.now();
-    const zodResults = validOrders.map(order => ZodOrderSchema.safeParse(order));
+    let processedZod = 0;
+    
+    for (let i = 0; i < iterations; i += batchSize) {
+        const batch = validOrders.slice(i, i + batchSize);
+        const batchStart = performance.now();
+        batch.forEach(order => ZodOrderSchema.safeParse(order));
+        const batchTime = performance.now() - batchStart;
+        processedZod += batch.length;
+        
+        const speed = (batch.length / (batchTime / 1000)).toFixed(0);
+        const progress = ((processedZod / iterations) * 100).toFixed(1);
+        console.log(`${progress}% complete - Current speed: ${speed.toLocaleString()} validations/sec`);
+    }
     const zodTime = performance.now() - zodStart;
 
-    console.log('\nResults:');
+    console.log('\nFinal Results:');
     console.log(`DHI: ${dhiTime.toFixed(2)}ms`);
     console.log(`Zod: ${zodTime.toFixed(2)}ms`);
-    console.log(`\nValidations per second:`);
+    console.log(`\nAverage validations per second:`);
     console.log(`DHI: ${(iterations / (dhiTime / 1000)).toFixed(0).toLocaleString()}`);
     console.log(`Zod: ${(iterations / (zodTime / 1000)).toFixed(0).toLocaleString()}`);
-}
-
-// Run benchmark directly
-main().catch(console.error); 
+} 

@@ -77,8 +77,14 @@ export class DhiType<T> {
 
     optional(): DhiType<T | undefined> {
         if (!this.initialized) throw new Error("DhiType not initialized");
-        // TODO: Implement optional fields in Rust
+        this.core.set_optional(true);
         return this as unknown as DhiType<T | undefined>;
+    }
+
+    nullable(): DhiType<T | null> {
+        if (!this.initialized) throw new Error("DhiType not initialized");
+        this.core.set_nullable(true);
+        return this as unknown as DhiType<T | null>;
     }
 
     validate(value: unknown): ValidationResult<T> {
@@ -165,5 +171,68 @@ export class DhiType<T> {
     setDebug(debug: boolean): void {
         if (!this.initialized) throw new Error("DhiType not initialized");
         this.core.set_debug(debug);
+    }
+
+    // Primitive types
+    date(): DhiType<Date> {
+        this.typeString = 'date';
+        return this as unknown as DhiType<Date>;
+    }
+
+    bigint(): DhiType<bigint> {
+        this.typeString = 'bigint';
+        return this as unknown as DhiType<bigint>;
+    }
+
+    symbol(): DhiType<symbol> {
+        this.typeString = 'symbol';
+        return this as unknown as DhiType<symbol>;
+    }
+
+    // Empty types
+    undefined(): DhiType<undefined> {
+        this.typeString = 'undefined';
+        return this as unknown as DhiType<undefined>;
+    }
+
+    null(): DhiType<null> {
+        this.typeString = 'null';
+        return this as unknown as DhiType<null>;
+    }
+
+    void(): DhiType<void> {
+        this.typeString = 'void';
+        return this as unknown as DhiType<void>;
+    }
+
+    // Catch-all types
+    any(): DhiType<any> {
+        this.typeString = 'any';
+        return this as unknown as DhiType<any>;
+    }
+
+    unknown(): DhiType<unknown> {
+        this.typeString = 'unknown';
+        return this as unknown as DhiType<unknown>;
+    }
+
+    // Never type
+    never(): DhiType<never> {
+        this.typeString = 'never';
+        return this as unknown as DhiType<never>;
+    }
+
+    record<K extends string, V>(valueType: DhiType<V>): DhiType<Record<K, V>> {
+        if (!this.initialized) throw new Error("DhiType not initialized");
+        this.typeString = 'record';
+        this.core.set_value_type(valueType.typeString);
+        return this as unknown as DhiType<Record<K, V>>;
+    }
+
+    // Add method to set type string
+    setTypeString(type: string): this {
+        if (!this.initialized) throw new Error("DhiType not initialized");
+        this.typeString = type;
+        return this;
     }
 }
