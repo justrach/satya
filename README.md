@@ -6,7 +6,7 @@
 <div align="center">
   
 [![PyPI version](https://badge.fury.io/py/satya.svg)](https://badge.fury.io/py/satya)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python Versions](https://img.shields.io/pypi/pyversions/satya.svg)](https://pypi.org/project/satya/)
 <!-- [![Downloads](https://pepy.tech/badge/satya)](https://pepy.tech/project/satya) -->
 
