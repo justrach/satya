@@ -8,9 +8,22 @@ struct StreamValidatorCore {
     custom_types: HashMap<String, HashMap<String, FieldValidator>>,
 }
 
+#[derive(Clone)]
 struct FieldValidator {
     field_type: FieldType,
     required: bool,
+    constraints: FieldConstraints,
+}
+
+#[derive(Clone, Default)]
+struct FieldConstraints {
+    min_length: Option<usize>,
+    max_length: Option<usize>,
+    min_value: Option<f64>,
+    max_value: Option<f64>,
+    pattern: Option<String>,
+    email: bool,
+    url: bool,
 }
 
 #[derive(Clone)]
@@ -64,14 +77,15 @@ impl StreamValidatorCore {
 
         custom_type.insert(field_name, FieldValidator { 
             field_type: parsed_field_type, 
-            required 
+            required,
+            constraints: FieldConstraints::default(),
         });
         Ok(())
     }
 
     fn add_field(&mut self, name: String, field_type: &str, required: bool) -> PyResult<()> {
         let field_type = self.parse_field_type(field_type)?;
-        self.schema.insert(name, FieldValidator { field_type, required });
+        self.schema.insert(name, FieldValidator { field_type, required, constraints: FieldConstraints::default() });
         Ok(())
     }
 
@@ -100,7 +114,7 @@ impl StreamValidatorCore {
         
         for (field_name, validator) in &self.schema {
             if let Some(value) = dict.get_item(field_name) {
-                self.validate_value(value, &validator.field_type)?;
+                self.validate_value(value, &validator.field_type, &validator.constraints)?;
             } else if validator.required {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     format!("Required field {} is missing", field_name)
@@ -144,21 +158,75 @@ impl StreamValidatorCore {
         ))
     }
 
-    fn validate_value(&self, value: &PyAny, field_type: &FieldType) -> PyResult<()> {
+    fn validate_value(&self, value: &PyAny, field_type: &FieldType, constraints: &FieldConstraints) -> PyResult<()> {
         match field_type {
             FieldType::String => {
                 if !value.is_instance_of::<pyo3::types::PyString>()? {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected string"));
                 }
-            }
-            FieldType::Integer => {
-                if !value.is_instance_of::<pyo3::types::PyInt>()? {
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected integer"));
+                let s = value.downcast::<pyo3::types::PyString>()?.to_str()?;
+                
+                // Length validation
+                if let Some(min_len) = constraints.min_length {
+                    if s.len() < min_len {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("String length must be >= {}", min_len)
+                        ));
+                    }
+                }
+                if let Some(max_len) = constraints.max_length {
+                    if s.len() > max_len {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("String length must be <= {}", max_len)
+                        ));
+                    }
+                }
+
+                // Email validation
+                if constraints.email {
+                    if !validate_email(s) {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid email format"));
+                    }
+                }
+
+                // URL validation
+                if constraints.url {
+                    if !validate_url(s) {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid URL format"));
+                    }
+                }
+
+                // Regex pattern validation
+                if let Some(pattern) = &constraints.pattern {
+                    if !regex_match(s, pattern) {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("String does not match pattern: {}", pattern)
+                        ));
+                    }
                 }
             }
-            FieldType::Float => {
-                if !value.is_instance_of::<pyo3::types::PyFloat>()? {
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected float"));
+            FieldType::Integer | FieldType::Float => {
+                let num = if value.is_instance_of::<pyo3::types::PyInt>()? {
+                    value.downcast::<pyo3::types::PyInt>()?.extract::<f64>()?
+                } else if value.is_instance_of::<pyo3::types::PyFloat>()? {
+                    value.downcast::<pyo3::types::PyFloat>()?.extract::<f64>()?
+                } else {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected number"));
+                };
+
+                if let Some(min_val) = constraints.min_value {
+                    if num < min_val {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be >= {}", min_val)
+                        ));
+                    }
+                }
+                if let Some(max_val) = constraints.max_value {
+                    if num > max_val {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be <= {}", max_val)
+                        ));
+                    }
                 }
             }
             FieldType::Boolean => {
@@ -171,7 +239,7 @@ impl StreamValidatorCore {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected list"));
                 }
                 for item in value.downcast::<pyo3::types::PyList>()?.iter() {
-                    self.validate_value(item, inner_type)?;
+                    self.validate_value(item, inner_type, constraints)?;
                 }
             }
             FieldType::Dict(inner_type) => {
@@ -179,7 +247,7 @@ impl StreamValidatorCore {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected dict"));
                 }
                 for item in value.downcast::<pyo3::types::PyDict>()?.values() {
-                    self.validate_value(item, inner_type)?;
+                    self.validate_value(item, inner_type, constraints)?;
                 }
             }
             FieldType::Custom(type_name) => {
@@ -194,7 +262,7 @@ impl StreamValidatorCore {
                 
                 for (field_name, validator) in custom_type {
                     if let Some(field_value) = dict.get_item(field_name) {
-                        self.validate_value(field_value, &validator.field_type)?;
+                        self.validate_value(field_value, &validator.field_type, &validator.constraints)?;
                     } else if validator.required {
                         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                             format!("Required field {} is missing in custom type {}", field_name, type_name)
@@ -205,6 +273,31 @@ impl StreamValidatorCore {
         }
         Ok(())
     }
+}
+
+// Helper functions for validation
+fn validate_email(s: &str) -> bool {
+    // Basic email validation
+    let parts: Vec<&str> = s.split('@').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let domain_parts: Vec<&str> = parts[1].split('.').collect();
+    if domain_parts.len() < 2 {
+        return false;
+    }
+    true
+}
+
+fn validate_url(s: &str) -> bool {
+    // Basic URL validation
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+fn regex_match(s: &str, pattern: &str) -> bool {
+    // Basic pattern matching (can be enhanced with proper regex)
+    // For now, just check if pattern exists in string
+    s.contains(pattern)
 }
 
 #[pymodule]

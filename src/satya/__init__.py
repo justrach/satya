@@ -1,10 +1,11 @@
 # Configuration flag for string representation
-from typing import Any, Dict, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar
+from typing import Any, Dict, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern
 from dataclasses import dataclass
 from . import _satya
 from itertools import islice
 from ._satya import StreamValidatorCore
 from .validator import StreamValidator
+import re
 
 T = TypeVar('T')
 
@@ -168,7 +169,6 @@ class StreamValidator:
     
     def _get_type_string(self, field_type: Union[Type, str]) -> str:
         """Convert Python type hints to string representation"""
-        # Handle string type names directly
         if isinstance(field_type, str):
             return field_type
         
@@ -176,7 +176,8 @@ class StreamValidator:
             str: "str",
             int: "int",
             float: "float",
-            bool: "bool"
+            bool: "bool",
+            Any: "any",  # Add Any type mapping
         }
         
         origin = get_origin(field_type)
@@ -221,21 +222,47 @@ class StreamValidator:
         """Get information about a registered custom type"""
         return self._type_registry.get(type_name)
 
+@dataclass
+class FieldConfig:
+    """Configuration for field validation"""
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    pattern: Optional[Pattern] = None
+    email: bool = False
+    url: bool = False
+    description: Optional[str] = None
+
 class Field:
-    """Field definition with enhanced features"""
+    """Enhanced field definition with validation"""
     def __init__(
         self,
         type_: Optional[Type] = None,
         *,
         required: bool = True,
+        min_length: Optional[int] = None,
+        max_length: Optional[int] = None,
+        min_value: Optional[float] = None,
+        max_value: Optional[float] = None,
+        pattern: Optional[str] = None,
+        email: bool = False,
+        url: bool = False,
         description: Optional[str] = None,
-        default: Any = None,
         examples: Optional[List[Any]] = None
     ):
         self.type = type_
         self.required = required
-        self.description = description
-        self.default = default
+        self.config = FieldConfig(
+            min_length=min_length,
+            max_length=max_length,
+            min_value=min_value,
+            max_value=max_value,
+            pattern=re.compile(pattern) if pattern else None,
+            email=email,
+            url=url,
+            description=description
+        )
         self.examples = examples or []
 
 class ModelMetaclass(type):
