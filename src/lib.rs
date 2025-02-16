@@ -35,6 +35,7 @@ enum FieldType {
     List(Box<FieldType>),
     Dict(Box<FieldType>),
     Custom(String),  // Reference to a custom type name
+    Any,
 }
 
 #[pymethods]
@@ -131,10 +132,11 @@ impl StreamValidatorCore {
     fn parse_field_type(&self, field_type: &str) -> PyResult<FieldType> {
         // First check for primitive types
         match field_type {
-            "str" => return Ok(FieldType::String),
-            "int" => return Ok(FieldType::Integer),
-            "float" => return Ok(FieldType::Float),
-            "bool" => return Ok(FieldType::Boolean),
+            "str" | "string" | "email" | "url" | "uuid" | "date-time" => return Ok(FieldType::String),
+            "int" | "integer" => return Ok(FieldType::Integer),
+            "float" | "number" => return Ok(FieldType::Float),
+            "bool" | "boolean" => return Ok(FieldType::Boolean),
+            "any" => return Ok(FieldType::Any),
             _ => {}
         }
         
@@ -148,14 +150,8 @@ impl StreamValidatorCore {
             return Ok(FieldType::Dict(Box::new(inner)));
         }
         
-        // Finally check for custom type
-        if self.custom_types.contains_key(field_type) {
-            return Ok(FieldType::Custom(field_type.to_string()));
-        }
-        
-        Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!("Unsupported type: {}", field_type)
-        ))
+        // Finally treat everything else as a custom type
+        Ok(FieldType::Custom(field_type.to_string()))
     }
 
     fn validate_value(&self, value: &PyAny, field_type: &FieldType, constraints: &FieldConstraints) -> PyResult<()> {
@@ -269,6 +265,9 @@ impl StreamValidatorCore {
                         ));
                     }
                 }
+            }
+            FieldType::Any => {
+                // Any type accepts all values without validation
             }
         }
         Ok(())

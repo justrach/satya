@@ -1,12 +1,14 @@
 # Configuration flag for string representation
-from typing import Any, Dict, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern
+from typing import Any, Dict, Literal, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern
 from dataclasses import dataclass
 from . import _satya
 from itertools import islice
 from ._satya import StreamValidatorCore
 from .validator import StreamValidator
 import re
-
+from uuid import UUID
+from enum import Enum
+from datetime import datetime
 T = TypeVar('T')
 
 @dataclass
@@ -168,55 +170,75 @@ class StreamValidator:
                 ])
     
     def _get_type_string(self, field_type: Union[Type, str]) -> str:
-        """Convert Python type hints to string representation"""
+        """Convert Python type to type string"""
         if isinstance(field_type, str):
             return field_type
         
+        # Handle Literal types
+        if get_origin(field_type) == Literal:
+            return "str"  # Literals are treated as strings with enum validation
+        
+        # Get type name dynamically
+        type_name = getattr(field_type, '__name__', str(field_type))
+        
+        # Handle basic types
         type_map = {
-            str: "str",
-            int: "int",
-            float: "float",
-            bool: "bool",
-            Any: "any",  # Add Any type mapping
+            str: 'str',  # Use type objects as keys
+            int: 'int',
+            float: 'float',
+            bool: 'bool',
+            dict: 'dict',
+            list: 'list',
+            datetime: 'date-time',  # Now datetime will match
+            UUID: 'uuid',
+            Any: 'any',
         }
         
-        origin = get_origin(field_type)
-        
-        # Handle Optional types
-        if origin is Union:
+        # Get the base type for Optional/Union types
+        if get_origin(field_type) == Union:
             args = get_args(field_type)
-            if len(args) == 2 and args[1] is type(None):  # Optional[T] is Union[T, None]
-                inner_type = self._get_type_string(args[0])
-                return inner_type  # The Rust side will handle optionality via required=False
-            
-        # Handle List type hints
-        if origin is list:
+            # Remove None type for Optional fields
+            types = [t for t in args if t != type(None)]
+            if len(types) == 1:
+                return self._get_type_string(types[0])
+        
+        # Handle List and Dict
+        if get_origin(field_type) == list:
             inner_type = get_args(field_type)[0]
-            if isinstance(inner_type, str) or hasattr(inner_type, "__forward_arg__"):
-                inner_str = inner_type.__forward_arg__ if hasattr(inner_type, "__forward_arg__") else inner_type
-                return f"List[{inner_str}]"
             return f"List[{self._get_type_string(inner_type)}]"
-        
-        # Handle Dict type hints
-        if origin is dict:
+        elif get_origin(field_type) == dict:
             key_type, value_type = get_args(field_type)
-            value_str = self._get_type_string(value_type)
-            return f"Dict[{value_str}]"
+            return f"Dict[{self._get_type_string(value_type)}]"
         
-        # Handle forward references
-        if hasattr(field_type, "__forward_arg__"):
-            return field_type.__forward_arg__
+        # Handle Enum types
+        if isinstance(field_type, type) and issubclass(field_type, Enum):
+            return "str"  # Enums are treated as strings with enum validation
         
-        # Handle Model classes
-        if isinstance(field_type, type) and issubclass(field_type, Model):
-            # Return the model class name as a custom type
+        # Handle Model types
+        if isinstance(field_type, type) and hasattr(field_type, '__fields__'):
             return field_type.__name__
         
-        # Handle primitive types
-        type_str = type_map.get(field_type)
-        if type_str is None:
-            raise ValueError(f"Unsupported type: {field_type}")
-        return type_str
+        # Try to get type from mapping
+        if field_type in type_map:
+            return type_map[field_type]
+        
+        # Fallback to type name mapping
+        name_map = {
+            'str': 'str',
+            'int': 'int',
+            'float': 'float',
+            'bool': 'bool',
+            'dict': 'dict',
+            'list': 'list',
+            'datetime': 'date-time',
+            'date': 'date-time',
+            'UUID': 'uuid',
+            'Any': 'any',
+        }
+        if type_name in name_map:
+            return name_map[type_name]
+        
+        raise ValueError(f"Unsupported type: {field_type}")
     
     def get_type_info(self, type_name: str) -> Optional[Dict]:
         """Get information about a registered custom type"""
@@ -352,6 +374,131 @@ class Model(metaclass=ModelMetaclass):
     def dict(self) -> Dict:
         """Convert to dictionary"""
         return self._data.copy()
+
+    @classmethod
+    def json_schema(cls) -> dict:
+        """Generate JSON Schema for this model"""
+        properties = {}
+        required = []
+
+        for field_name, field in cls.__fields__.items():
+            field_schema = _field_to_json_schema(field)
+            properties[field_name] = field_schema
+            if field.required:
+                required.append(field_name)
+
+        schema = {
+            "type": "object",
+            "title": cls.__name__,
+            "properties": properties,
+        }
+        
+        if required:
+            schema["required"] = required
+
+        return schema
+
+def _python_type_to_json_type(py_type: type) -> str:
+    """Convert Python type to JSON Schema type"""
+    # Get the type name
+    type_name = getattr(py_type, '__name__', str(py_type))
+    
+    # Basic type mapping
+    basic_types = {
+        'str': 'string',
+        'int': 'integer',
+        'float': 'number',
+        'bool': 'boolean',
+        'dict': 'object',
+        'list': 'array',
+        'datetime': 'string',
+        'date': 'string',
+        'UUID': 'string',
+    }
+    
+    return basic_types.get(type_name, 'string')
+
+def _field_to_json_schema(field: Field) -> dict:
+    """Convert a Field to JSON Schema"""
+    schema = {}
+    
+    # Get type name dynamically
+    type_name = getattr(field.type, '__name__', str(field.type))
+    
+    # Handle basic types
+    if type_name == 'str':
+        schema["type"] = "string"
+        if field.config.min_length is not None:
+            schema["minLength"] = field.config.min_length
+        if field.config.max_length is not None:
+            schema["maxLength"] = field.config.max_length
+        if field.config.pattern:
+            schema["pattern"] = field.config.pattern.pattern
+        if field.config.email:
+            schema["format"] = "email"
+        if field.config.url:
+            schema["format"] = "uri"
+    
+    elif type_name in ('int', 'float'):
+        schema["type"] = "number" if type_name == 'float' else "integer"
+        if field.config.min_value is not None:
+            schema["minimum"] = field.config.min_value
+        if field.config.max_value is not None:
+            schema["maximum"] = field.config.max_value
+    
+    elif type_name == 'bool':
+        schema["type"] = "boolean"
+    
+    elif type_name in ('datetime', 'date'):
+        schema["type"] = "string"
+        schema["format"] = "date-time"
+    
+    elif type_name == 'UUID':
+        schema["type"] = "string"
+        schema["format"] = "uuid"
+    
+    # Handle complex types
+    elif get_origin(field.type) == list:
+        schema["type"] = "array"
+        item_type = get_args(field.type)[0]
+        if hasattr(item_type, "json_schema"):
+            schema["items"] = item_type.json_schema()
+        else:
+            schema["items"] = {"type": _python_type_to_json_type(item_type)}
+        if field.config.min_length is not None:
+            schema["minItems"] = field.config.min_length
+        if field.config.max_length is not None:
+            schema["maxItems"] = field.config.max_length
+    
+    elif get_origin(field.type) == dict:
+        schema["type"] = "object"
+        value_type = get_args(field.type)[1]
+        if value_type == Any:
+            schema["additionalProperties"] = True
+        else:
+            schema["additionalProperties"] = {"type": _python_type_to_json_type(value_type)}
+    
+    # Handle enums
+    elif isinstance(field.type, type) and issubclass(field.type, Enum):
+        schema["type"] = "string"
+        schema["enum"] = [e.value for e in field.type]
+    
+    # Handle Literal types
+    elif get_origin(field.type) == Literal:
+        schema["enum"] = list(get_args(field.type))
+    
+    # Handle nested models
+    elif isinstance(field.type, type) and issubclass(field.type, Model):
+        schema.update(field.type.json_schema())
+    
+    # Handle Optional types
+    if get_origin(field.type) == Union and type(None) in get_args(field.type):
+        schema["nullable"] = True
+    
+    if field.config.description:
+        schema["description"] = field.config.description
+    
+    return schema
 
 def _type_to_json_schema(type_: Type) -> Dict:
     """Convert Python type to JSON Schema"""
