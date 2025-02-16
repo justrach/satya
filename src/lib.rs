@@ -49,11 +49,6 @@ impl StreamValidatorCore {
         }
     }
 
-    #[getter]
-    fn batch_size(&self) -> usize {
-        self.batch_size
-    }
-
     fn define_custom_type(&mut self, type_name: String) -> PyResult<()> {
         if !self.custom_types.contains_key(&type_name) {
             self.custom_types.insert(type_name, HashMap::new());
@@ -92,6 +87,10 @@ impl StreamValidatorCore {
 
     fn set_batch_size(&mut self, size: usize) {
         self.batch_size = size;
+    }
+
+    fn get_batch_size(&self) -> usize {
+        self.batch_size
     }
 
     fn validate_batch(&self, items: Vec<&PyAny>) -> PyResult<Vec<bool>> {

@@ -52,14 +52,23 @@ class ValidationResult(Generic[T]):
         return f"Invalid: {'; '.join(str(err) for err in self._errors)}"
 
 class StreamValidator:
-    """A high-performance stream validator for JSON-like data"""
-    
-    def __init__(self, batch_size: int = 1000):
-        """Initialize the validator with optional batch size for stream processing"""
-        self._validator = _satya.StreamValidatorCore()
-        self._validator.set_batch_size(batch_size)
+    """Validator for streaming data validation"""
+    def __init__(self):
+        self._validator = StreamValidatorCore()
         self._type_registry = {}
-        
+        self._batch_size = 1000  # Default batch size
+    
+    def set_batch_size(self, size: int) -> None:
+        """Set the batch size for stream processing"""
+        if size < 1:
+            raise ValueError("Batch size must be positive")
+        self._batch_size = size
+        self._validator.set_batch_size(size)
+    
+    def get_batch_size(self) -> int:
+        """Get current batch size"""
+        return self._batch_size
+    
     def define_type(self, type_name: str, fields: Dict[str, Union[Type, str]], 
                    doc: Optional[str] = None) -> None:
         """
@@ -117,35 +126,17 @@ class StreamValidator:
                 ValidationError(field="root", message=str(e), path=[])
             ])
     
-    def validate_stream(self, stream: Iterator[Dict], 
+    def validate_stream(self, items: Iterator[Dict], 
                        collect_errors: bool = False) -> Iterator[Union[Dict, ValidationResult[Dict]]]:
-        """
-        Validate a stream of dictionaries
-        
-        Args:
-            stream: Iterator of dictionaries to validate
-            collect_errors: If True, yield ValidationResult objects instead of just valid dicts
-            
-        Yields:
-            Either validated dictionaries or ValidationResults depending on collect_errors
-        """
+        """Validate a stream of items"""
         batch = []
-        batch_size = self._validator.batch_size
-        
-        for item in stream:
-            if not isinstance(item, dict):
-                if collect_errors:
-                    yield ValidationResult(errors=[
-                        ValidationError(field="root", message="Item must be a dictionary", path=[])
-                    ])
-                continue
-                
+        for item in items:
             batch.append(item)
-            if len(batch) >= batch_size:
+            if len(batch) >= self._batch_size:
                 yield from self._process_batch(batch, collect_errors)
                 batch = []
         
-        if batch:
+        if batch:  # Process remaining items
             yield from self._process_batch(batch, collect_errors)
     
     def _process_batch(self, batch: List[Dict], 
