@@ -1,5 +1,8 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
+use regex::Regex;  // Use the regex crate directly
 
 #[pyclass(name = "StreamValidatorCore")]
 struct StreamValidatorCore {
@@ -24,6 +27,14 @@ struct FieldConstraints {
     pattern: Option<String>,
     email: bool,
     url: bool,
+    ge: Option<i64>,
+    le: Option<i64>,
+    gt: Option<i64>,
+    lt: Option<i64>,
+    min_items: Option<usize>,
+    max_items: Option<usize>,
+    unique_items: bool,
+    enum_values: Option<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -199,6 +210,15 @@ impl StreamValidatorCore {
                         ));
                     }
                 }
+
+                // Add enum validation
+                if let Some(ref enum_values) = constraints.enum_values {
+                    if !enum_values.contains(&s.to_string()) {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be one of: {:?}", enum_values)
+                        ));
+                    }
+                }
             }
             FieldType::Integer | FieldType::Float => {
                 let num = if value.is_instance_of::<pyo3::types::PyInt>()? {
@@ -208,6 +228,36 @@ impl StreamValidatorCore {
                 } else {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected number"));
                 };
+
+                // Add ge/le/gt/lt validation
+                if let Some(ge) = constraints.ge {
+                    if num < ge as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be >= {}", ge)
+                        ));
+                    }
+                }
+                if let Some(le) = constraints.le {
+                    if num > le as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be <= {}", le)
+                        ));
+                    }
+                }
+                if let Some(gt) = constraints.gt {
+                    if num <= gt as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be > {}", gt)
+                        ));
+                    }
+                }
+                if let Some(lt) = constraints.lt {
+                    if num >= lt as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be < {}", lt)
+                        ));
+                    }
+                }
 
                 if let Some(min_val) = constraints.min_value {
                     if num < min_val {
@@ -230,10 +280,34 @@ impl StreamValidatorCore {
                 }
             }
             FieldType::List(inner_type) => {
-                if !value.is_instance_of::<pyo3::types::PyList>()? {
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected list"));
+                let list = value.downcast::<pyo3::types::PyList>()?;
+                
+                // Add min/max items validation
+                if let Some(min_items) = constraints.min_items {
+                    if list.len() < min_items {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("List must have at least {} items", min_items)
+                        ));
+                    }
                 }
-                for item in value.downcast::<pyo3::types::PyList>()?.iter() {
+                // ... similar for max_items
+                
+                // Add unique items validation
+                if constraints.unique_items {
+                    // This is a simple implementation - might need optimization for large lists
+                    let mut seen = std::collections::HashSet::new();
+                    for item in list.iter() {
+                        let s = item.str()?.to_str()?;
+                        if !seen.insert(s.to_string()) {
+                            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                "List items must be unique"
+                            ));
+                        }
+                    }
+                }
+                
+                // Validate each item
+                for item in list.iter() {
                     self.validate_value(item, inner_type, constraints)?;
                 }
             }

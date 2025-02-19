@@ -248,35 +248,84 @@ class FieldConfig:
     description: Optional[str] = None
 
 class Field:
-    """Enhanced field definition with validation"""
+    """Field definition with validation rules"""
     def __init__(
         self,
-        type_: Optional[Type] = None,
+        type_: Type = None,
         *,
         required: bool = True,
         min_length: Optional[int] = None,
         max_length: Optional[int] = None,
-        min_value: Optional[float] = None,
-        max_value: Optional[float] = None,
         pattern: Optional[str] = None,
         email: bool = False,
         url: bool = False,
+        ge: Optional[int] = None,
+        le: Optional[int] = None,
+        gt: Optional[int] = None,
+        lt: Optional[int] = None,
+        min_value: Optional[float] = None,
+        max_value: Optional[float] = None,
+        min_items: Optional[int] = None,
+        max_items: Optional[int] = None,
+        unique_items: bool = False,
+        enum: Optional[List[Any]] = None,
         description: Optional[str] = None,
-        examples: Optional[List[Any]] = None
+        example: Optional[Any] = None,
     ):
         self.type = type_
         self.required = required
-        self.config = FieldConfig(
-            min_length=min_length,
-            max_length=max_length,
-            min_value=min_value,
-            max_value=max_value,
-            pattern=re.compile(pattern) if pattern else None,
-            email=email,
-            url=url,
-            description=description
-        )
-        self.examples = examples or []
+        self.min_length = min_length
+        self.max_length = max_length
+        self.pattern = pattern
+        self.email = email
+        self.url = url
+        self.ge = ge
+        self.le = le
+        self.gt = gt
+        self.lt = lt
+        self.min_value = min_value
+        self.max_value = max_value
+        self.min_items = min_items
+        self.max_items = max_items
+        self.unique_items = unique_items
+        self.enum = enum
+        self.description = description
+        self.example = example
+
+    def json_schema(self) -> Dict[str, Any]:
+        """Generate JSON schema for this field"""
+        schema = {}
+        
+        if self.min_length is not None:
+            schema["minLength"] = self.min_length
+        if self.max_length is not None:
+            schema["maxLength"] = self.max_length
+        if self.pattern is not None:
+            schema["pattern"] = self.pattern
+        if self.email:
+            schema["pattern"] = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        if self.ge is not None:
+            schema["minimum"] = self.ge
+        if self.le is not None:
+            schema["maximum"] = self.le
+        if self.gt is not None:
+            schema["exclusiveMinimum"] = self.gt
+        if self.lt is not None:
+            schema["exclusiveMaximum"] = self.lt
+        if self.description:
+            schema["description"] = self.description
+        if self.example:
+            schema["example"] = self.example
+        if self.min_items is not None:
+            schema["minItems"] = self.min_items
+        if self.max_items is not None:
+            schema["maxItems"] = self.max_items
+        if self.unique_items:
+            schema["uniqueItems"] = True
+        if self.enum:
+            schema["enum"] = self.enum
+            
+        return schema
 
 class ModelMetaclass(type):
     """Metaclass for handling model definitions"""
@@ -419,23 +468,31 @@ def _field_to_json_schema(field: Field) -> dict:
     # Handle basic types
     if type_name == 'str':
         schema["type"] = "string"
-        if field.config.min_length is not None:
-            schema["minLength"] = field.config.min_length
-        if field.config.max_length is not None:
-            schema["maxLength"] = field.config.max_length
-        if field.config.pattern:
-            schema["pattern"] = field.config.pattern.pattern
-        if field.config.email:
+        if field.min_length is not None:
+            schema["minLength"] = field.min_length
+        if field.max_length is not None:
+            schema["maxLength"] = field.max_length
+        if field.pattern:
+            schema["pattern"] = field.pattern
+        if field.email:
             schema["format"] = "email"
-        if field.config.url:
+        if field.url:
             schema["format"] = "uri"
     
     elif type_name in ('int', 'float'):
         schema["type"] = "number" if type_name == 'float' else "integer"
-        if field.config.min_value is not None:
-            schema["minimum"] = field.config.min_value
-        if field.config.max_value is not None:
-            schema["maximum"] = field.config.max_value
+        if field.min_value is not None:
+            schema["minimum"] = field.min_value
+        if field.max_value is not None:
+            schema["maximum"] = field.max_value
+        if field.ge is not None:
+            schema["minimum"] = field.ge
+        if field.le is not None:
+            schema["maximum"] = field.le
+        if field.gt is not None:
+            schema["exclusiveMinimum"] = field.gt
+        if field.lt is not None:
+            schema["exclusiveMaximum"] = field.lt
     
     elif type_name == 'bool':
         schema["type"] = "boolean"
@@ -456,10 +513,10 @@ def _field_to_json_schema(field: Field) -> dict:
             schema["items"] = item_type.json_schema()
         else:
             schema["items"] = {"type": _python_type_to_json_type(item_type)}
-        if field.config.min_length is not None:
-            schema["minItems"] = field.config.min_length
-        if field.config.max_length is not None:
-            schema["maxItems"] = field.config.max_length
+        if field.min_length is not None:
+            schema["minItems"] = field.min_length
+        if field.max_length is not None:
+            schema["maxItems"] = field.max_length
     
     elif get_origin(field.type) == dict:
         schema["type"] = "object"
@@ -486,8 +543,8 @@ def _field_to_json_schema(field: Field) -> dict:
     if get_origin(field.type) == Union and type(None) in get_args(field.type):
         schema["nullable"] = True
     
-    if field.config.description:
-        schema["description"] = field.config.description
+    if field.description:
+        schema["description"] = field.description
     
     return schema
 
