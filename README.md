@@ -114,6 +114,25 @@ While Pydantic has revolutionized data validation in Python and inspired this pr
 pip install satya
 ```
 
+### Requirements:
+- Python 3.7 or higher
+- Rust toolchain 1.70.0 or higher (if installing from source)
+
+If you're installing from source or encountering Rust-related errors, make sure you have an updated Rust toolchain:
+
+```bash
+# Install Rust if you don't have it
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Update existing Rust installation
+rustup update
+```
+
+You can check your Rust version with:
+```bash
+rustc --version
+```
+
 ## Current Status:
 Satya is currently in alpha (v0.2.1). While the core functionality is stable, we're actively working on:
 - Expanding type support
