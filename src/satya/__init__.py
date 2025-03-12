@@ -271,6 +271,7 @@ class Field:
         enum: Optional[List[Any]] = None,
         description: Optional[str] = None,
         example: Optional[Any] = None,
+        default: Any = None,
     ):
         self.type = type_
         self.required = required
@@ -291,6 +292,7 @@ class Field:
         self.enum = enum
         self.description = description
         self.example = example
+        self.default = default
 
     def json_schema(self) -> Dict[str, Any]:
         """Generate JSON schema for this field"""
