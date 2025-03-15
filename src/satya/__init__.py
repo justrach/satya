@@ -9,14 +9,6 @@ import re
 from uuid import UUID
 from enum import Enum
 from datetime import datetime
-
-# Import FastAPI integration if FastAPI is available
-try:
-    from fastapi import FastAPI
-    from .fastapi import SatyaJSONResponse, SatyaValidationHTTPException, validate_request_model
-    _has_fastapi = True
-except ImportError:
-    _has_fastapi = False
 T = TypeVar('T')
 
 @dataclass
@@ -605,18 +597,4 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
         doc=model.__doc__
     )
 
-__all__ = [
-    'StreamValidator',
-    'Model',
-    'Field',
-    'ValidationError',
-    'ValidationResult'
-]
-
-# Add FastAPI integration to __all__ if FastAPI is available
-if _has_fastapi:
-    __all__.extend([
-        'SatyaJSONResponse',
-        'SatyaValidationHTTPException',
-        'validate_request_model',
-    ])
+__all__ = ['StreamValidator'] 

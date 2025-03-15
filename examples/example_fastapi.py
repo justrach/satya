@@ -58,10 +58,6 @@ def create_item(item: ItemCreate):
     # Convert Pydantic model to dict and create a satya model
     item_dict = item.dict()
     
-    # Validate price - reject negative values
-    if item_dict["price"] <= 0:
-        return {"error": "Price must be greater than zero"}
-        
     # Create a satya model (normally you'd validate business rules, save to DB, etc.)
     satya_item = Item(
         id=123,  # In real app this would be from DB
@@ -80,11 +76,11 @@ def create_item(item: ItemCreate):
 
 # Regular FastAPI route, just converting to satya model at the end
 @app.get("/items/search", response_class=SatyaJSONResponse)
-def search_items(min_price: Optional[float] = None, max_price: Optional[float] = None, tag: Optional[str] = None):
+def search_items(query: ItemQuery):
     """
     Search for items with filtering.
     
-    Uses FastAPI's query parameter handling but returns satya models.
+    Uses Pydantic for request validation but returns satya models.
     """
     # In a real app, you'd search a database
     # For demo, we'll create a mock item based on query params
@@ -92,12 +88,12 @@ def search_items(min_price: Optional[float] = None, max_price: Optional[float] =
     # Create sample prices list
     prices = [9.99, 19.99, 29.99, 39.99, 49.99]
     
-    # Filter prices based on query parameters
+    # Filter prices based on query
     filtered_prices = prices
-    if min_price is not None:
-        filtered_prices = [p for p in filtered_prices if p >= min_price]
-    if max_price is not None:
-        filtered_prices = [p for p in filtered_prices if p <= max_price]
+    if query.min_price is not None:
+        filtered_prices = [p for p in filtered_prices if p >= query.min_price]
+    if query.max_price is not None:
+        filtered_prices = [p for p in filtered_prices if p <= query.max_price]
     
     # Create sample items with filtered prices
     items = []
@@ -108,7 +104,7 @@ def search_items(min_price: Optional[float] = None, max_price: Optional[float] =
             description=f"Description for item {i}",
             price=price,
             is_offer=price % 20 == 0,  # Every 20.00 is an offer
-            tags=["tag1", tag] if tag else ["tag1"]
+            tags=["tag1", query.tag] if query.tag else ["tag1"]
         )
         items.append(item)
     

@@ -1,0 +1,134 @@
+[
+  {
+    "framework": "pydantic",
+    "scenario": "small_item",
+    "operation": "create",
+    "avg_time_ms": 5.4746317863464355,
+    "median_time_ms": 5.219936370849609,
+    "min_time_ms": 1.5778541564941406,
+    "max_time_ms": 10.492801666259766,
+    "stddev_time_ms": 2.7807433722369965,
+    "iterations": 200
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "small_item",
+    "operation": "get",
+    "avg_time_ms": 4.601508378982544,
+    "median_time_ms": 4.081010818481445,
+    "min_time_ms": 1.8379688262939453,
+    "max_time_ms": 8.376121520996094,
+    "stddev_time_ms": 2.2781770365657494,
+    "iterations": 200
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "medium_item",
+    "operation": "create",
+    "avg_time_ms": 4.868073463439941,
+    "median_time_ms": 4.806995391845703,
+    "min_time_ms": 1.3737678527832031,
+    "max_time_ms": 9.050130844116211,
+    "stddev_time_ms": 2.630633211235736,
+    "iterations": 200
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "medium_item",
+    "operation": "get",
+    "avg_time_ms": 3.98356556892395,
+    "median_time_ms": 3.5855770111083984,
+    "min_time_ms": 1.5780925750732422,
+    "max_time_ms": 7.652044296264648,
+    "stddev_time_ms": 1.804809394814491,
+    "iterations": 200
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "large_item",
+    "operation": "create",
+    "avg_time_ms": 4.338319301605225,
+    "median_time_ms": 4.228115081787109,
+    "min_time_ms": 1.3499259948730469,
+    "max_time_ms": 7.988929748535156,
+    "stddev_time_ms": 1.9335802705220206,
+    "iterations": 200
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "large_item",
+    "operation": "get",
+    "avg_time_ms": 3.625011444091797,
+    "median_time_ms": 3.1440258026123047,
+    "min_time_ms": 1.3499259948730469,
+    "max_time_ms": 6.972074508666992,
+    "stddev_time_ms": 1.8723880551425236,
+    "iterations": 200
+  },
+  {
+    "framework": "satya",
+    "scenario": "small_item",
+    "operation": "create",
+    "avg_time_ms": 4.630395174026489,
+    "median_time_ms": 4.305362701416016,
+    "min_time_ms": 1.1239051818847656,
+    "max_time_ms": 9.111166000366211,
+    "stddev_time_ms": 2.5831833930560455,
+    "iterations": 200
+  },
+  {
+    "framework": "satya",
+    "scenario": "small_item",
+    "operation": "get",
+    "avg_time_ms": 3.3550047874450684,
+    "median_time_ms": 3.1485557556152344,
+    "min_time_ms": 1.1470317840576172,
+    "max_time_ms": 6.440162658691406,
+    "stddev_time_ms": 1.7894283503614201,
+    "iterations": 200
+  },
+  {
+    "framework": "satya",
+    "scenario": "medium_item",
+    "operation": "create",
+    "avg_time_ms": 3.5500025749206543,
+    "median_time_ms": 3.5805702209472656,
+    "min_time_ms": 1.1830329895019531,
+    "max_time_ms": 6.638050079345703,
+    "stddev_time_ms": 1.550926576677045,
+    "iterations": 200
+  },
+  {
+    "framework": "satya",
+    "scenario": "medium_item",
+    "operation": "get",
+    "avg_time_ms": 3.273526430130005,
+    "median_time_ms": 3.115057945251465,
+    "min_time_ms": 1.2731552124023438,
+    "max_time_ms": 6.007909774780273,
+    "stddev_time_ms": 1.5321067216039452,
+    "iterations": 200
+  },
+  {
+    "framework": "satya",
+    "scenario": "large_item",
+    "operation": "create",
+    "avg_time_ms": 3.9506363868713374,
+    "median_time_ms": 4.197597503662109,
+    "min_time_ms": 1.1768341064453125,
+    "max_time_ms": 6.996870040893555,
+    "stddev_time_ms": 1.7286941677702237,
+    "iterations": 200
+  },
+  {
+    "framework": "satya",
+    "scenario": "large_item",
+    "operation": "get",
+    "avg_time_ms": 3.1313514709472656,
+    "median_time_ms": 3.041863441467285,
+    "min_time_ms": 1.0638236999511719,
+    "max_time_ms": 5.777835845947266,
+    "stddev_time_ms": 1.5184446792204516,
+    "iterations": 200
+  }
+]
