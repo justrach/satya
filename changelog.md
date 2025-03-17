@@ -1,5 +1,39 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.2] - 2024-03-17
+
+### Added
+- Enhanced email validation with RFC 5322 compliant regex pattern
+- Added comprehensive domain validation for email addresses
+- Added length validation for email addresses (max 254 characters)
+
+### Changed
+- Improved email validation error messages
+- Updated documentation with email validation examples
+
+## [0.2.1] - Previous Release
+
+### Added
+- Initial release with core validation features
+- Support for basic data types (string, integer, float, boolean)
+- Support for nested models and complex types
+- Stream processing capabilities
+- Basic email and URL validation
+- Pattern matching support
+- List and dictionary validation
+- Custom type support
+- Batch processing functionality
+
+### Performance
+- Up to 134x faster than Pydantic for large-scale validation tasks
+- Efficient memory usage with Rust-powered core
+- Optimized stream processing for large datasets
+
 ## [0.2.3] - 2024-01-15
 
 ### Added
