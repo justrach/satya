@@ -1,0 +1,13 @@
+Framework,Scenario,Operation,Avg Time (ms),Median Time (ms),Min Time (ms),Max Time (ms),StdDev (ms)
+pydantic,small_item,create,5.4746,5.2199,1.5779,10.4928,2.7807
+pydantic,small_item,get,4.6015,4.0810,1.8380,8.3761,2.2782
+pydantic,medium_item,create,4.8681,4.8070,1.3738,9.0501,2.6306
+pydantic,medium_item,get,3.9836,3.5856,1.5781,7.6520,1.8048
+pydantic,large_item,create,4.3383,4.2281,1.3499,7.9889,1.9336
+pydantic,large_item,get,3.6250,3.1440,1.3499,6.9721,1.8724
+satya,small_item,create,4.6304,4.3054,1.1239,9.1112,2.5832
+satya,small_item,get,3.3550,3.1486,1.1470,6.4402,1.7894
+satya,medium_item,create,3.5500,3.5806,1.1830,6.6381,1.5509
+satya,medium_item,get,3.2735,3.1151,1.2732,6.0079,1.5321
+satya,large_item,create,3.9506,4.1976,1.1768,6.9969,1.7287
+satya,large_item,get,3.1314,3.0419,1.0638,5.7778,1.5184

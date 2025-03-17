@@ -1,0 +1,98 @@
+{
+  "github": {
+    "satya_1": {
+      "avg_time": 7.295799969142536e-05,
+      "data_size": 10,
+      "ops_per_sec": 137065.1613571484
+    },
+    "satya_5": {
+      "avg_time": 1.4999999621068127e-05,
+      "data_size": 10,
+      "ops_per_sec": 666666.6835080837
+    },
+    "satya_10": {
+      "avg_time": 1.2666999282373581e-05,
+      "data_size": 10,
+      "ops_per_sec": 789452.9538590271
+    },
+    "pydantic": {
+      "avg_time": 0.00048091699954966316,
+      "data_size": 10,
+      "ops_per_sec": 20793.60889584716
+    }
+  },
+  "posts": {
+    "count_10": {
+      "satya": {
+        "batch_1": {
+          "avg_time": 0.00011304100007691886,
+          "data_size": 10,
+          "ops_per_sec": 88463.47779297325
+        },
+        "batch_5": {
+          "avg_time": 6.662500072707189e-05,
+          "data_size": 10,
+          "ops_per_sec": 150093.80699243545
+        },
+        "batch_10": {
+          "avg_time": 5.2583000069716945e-05,
+          "data_size": 10,
+          "ops_per_sec": 190175.5317639074
+        }
+      },
+      "pydantic": {
+        "avg_time": 8.120800066535594e-05,
+        "data_size": 10,
+        "ops_per_sec": 123140.57627410706
+      }
+    },
+    "count_50": {
+      "satya": {
+        "batch_1": {
+          "avg_time": 0.00023304200021811994,
+          "data_size": 50,
+          "ops_per_sec": 214553.59957948173
+        },
+        "batch_5": {
+          "avg_time": 0.00021783400006825104,
+          "data_size": 50,
+          "ops_per_sec": 229532.57978246812
+        },
+        "batch_10": {
+          "avg_time": 0.000156083000547369,
+          "data_size": 50,
+          "ops_per_sec": 320342.3808144033
+        }
+      },
+      "pydantic": {
+        "avg_time": 0.00025504199948045425,
+        "data_size": 50,
+        "ops_per_sec": 196046.14181920994
+      }
+    },
+    "count_100": {
+      "satya": {
+        "batch_1": {
+          "avg_time": 0.0003958750003221212,
+          "data_size": 100,
+          "ops_per_sec": 252604.98874298853
+        },
+        "batch_5": {
+          "avg_time": 0.00016762500035838457,
+          "data_size": 100,
+          "ops_per_sec": 596569.7228110282
+        },
+        "batch_10": {
+          "avg_time": 0.00014054199982638238,
+          "data_size": 100,
+          "ops_per_sec": 711531.0734409239
+        }
+      },
+      "pydantic": {
+        "avg_time": 0.0002981670004373882,
+        "data_size": 100,
+        "ops_per_sec": 335382.5200418143
+      }
+    }
+  }
+}

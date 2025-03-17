@@ -349,15 +349,37 @@ impl StreamValidatorCore {
 
 // Helper functions for validation
 fn validate_email(s: &str) -> bool {
-    // Basic email validation
+    // RFC 5322 compliant email regex
+    let email_regex = Regex::new(r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$").unwrap();
+    
+    // Check basic structure and length
+    if s.len() > 254 || s.is_empty() {
+        return false;
+    }
+    
+    // Apply regex validation
+    if !email_regex.is_match(s) {
+        return false;
+    }
+    
+    // Additional validation for domain part
     let parts: Vec<&str> = s.split('@').collect();
     if parts.len() != 2 {
         return false;
     }
-    let domain_parts: Vec<&str> = parts[1].split('.').collect();
-    if domain_parts.len() < 2 {
+    
+    let domain = parts[1];
+    // Domain specific validation
+    if domain.starts_with('.') || domain.ends_with('.') {
         return false;
     }
+    
+    // Domain must have at least one dot and valid TLD
+    let domain_parts: Vec<&str> = domain.split('.').collect();
+    if domain_parts.len() < 2 || domain_parts.iter().any(|&part| part.is_empty()) {
+        return false;
+    }
+    
     true
 }
 

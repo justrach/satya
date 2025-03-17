@@ -1,0 +1,134 @@
+[
+  {
+    "framework": "pydantic",
+    "scenario": "small_item",
+    "operation": "create",
+    "avg_time_ms": 1.0638809204101562,
+    "median_time_ms": 1.0551214218139648,
+    "min_time_ms": 0.8091926574707031,
+    "max_time_ms": 1.3911724090576172,
+    "stddev_time_ms": 0.12548334212251275,
+    "iterations": 50
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "small_item",
+    "operation": "get",
+    "avg_time_ms": 0.9597539901733398,
+    "median_time_ms": 0.964045524597168,
+    "min_time_ms": 0.8728504180908203,
+    "max_time_ms": 1.0721683502197266,
+    "stddev_time_ms": 0.047575312856048595,
+    "iterations": 50
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "medium_item",
+    "operation": "create",
+    "avg_time_ms": 0.8519792556762695,
+    "median_time_ms": 0.825047492980957,
+    "min_time_ms": 0.7090568542480469,
+    "max_time_ms": 1.1119842529296875,
+    "stddev_time_ms": 0.08714899383861392,
+    "iterations": 50
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "medium_item",
+    "operation": "get",
+    "avg_time_ms": 0.9451198577880859,
+    "median_time_ms": 0.9495019912719727,
+    "min_time_ms": 0.8008480072021484,
+    "max_time_ms": 1.0819435119628906,
+    "stddev_time_ms": 0.06906294953872079,
+    "iterations": 50
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "large_item",
+    "operation": "create",
+    "avg_time_ms": 1.0029983520507812,
+    "median_time_ms": 1.0094642639160156,
+    "min_time_ms": 0.8189678192138672,
+    "max_time_ms": 1.1680126190185547,
+    "stddev_time_ms": 0.07434522123352663,
+    "iterations": 50
+  },
+  {
+    "framework": "pydantic",
+    "scenario": "large_item",
+    "operation": "get",
+    "avg_time_ms": 0.9132909774780273,
+    "median_time_ms": 0.910639762878418,
+    "min_time_ms": 0.7739067077636719,
+    "max_time_ms": 1.062154769897461,
+    "stddev_time_ms": 0.07381423445781679,
+    "iterations": 50
+  },
+  {
+    "framework": "satya",
+    "scenario": "small_item",
+    "operation": "create",
+    "avg_time_ms": 1.1847162246704102,
+    "median_time_ms": 1.1141300201416016,
+    "min_time_ms": 0.8251667022705078,
+    "max_time_ms": 1.6756057739257812,
+    "stddev_time_ms": 0.23936156422829555,
+    "iterations": 50
+  },
+  {
+    "framework": "satya",
+    "scenario": "small_item",
+    "operation": "get",
+    "avg_time_ms": 1.1295461654663086,
+    "median_time_ms": 1.0906457901000977,
+    "min_time_ms": 0.8950233459472656,
+    "max_time_ms": 1.584768295288086,
+    "stddev_time_ms": 0.16102398338248192,
+    "iterations": 50
+  },
+  {
+    "framework": "satya",
+    "scenario": "medium_item",
+    "operation": "create",
+    "avg_time_ms": 0.8847951889038086,
+    "median_time_ms": 0.8543729782104492,
+    "min_time_ms": 0.728607177734375,
+    "max_time_ms": 1.171112060546875,
+    "stddev_time_ms": 0.11221622608944692,
+    "iterations": 50
+  },
+  {
+    "framework": "satya",
+    "scenario": "medium_item",
+    "operation": "get",
+    "avg_time_ms": 1.1160469055175781,
+    "median_time_ms": 0.8891820907592773,
+    "min_time_ms": 0.782012939453125,
+    "max_time_ms": 2.7163028717041016,
+    "stddev_time_ms": 0.5568000172679055,
+    "iterations": 50
+  },
+  {
+    "framework": "satya",
+    "scenario": "large_item",
+    "operation": "create",
+    "avg_time_ms": 2.609415054321289,
+    "median_time_ms": 1.0411739349365234,
+    "min_time_ms": 0.804901123046875,
+    "max_time_ms": 16.895055770874023,
+    "stddev_time_ms": 4.785539803602735,
+    "iterations": 50
+  },
+  {
+    "framework": "satya",
+    "scenario": "large_item",
+    "operation": "get",
+    "avg_time_ms": 0.9335613250732422,
+    "median_time_ms": 0.8939504623413086,
+    "min_time_ms": 0.7772445678710938,
+    "max_time_ms": 1.4221668243408203,
+    "stddev_time_ms": 0.16622521477048802,
+    "iterations": 50
+  }
+]

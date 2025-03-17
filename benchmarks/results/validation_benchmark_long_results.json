@@ -1,0 +1,20 @@
+{
+  "pydantic_time_mean": 2.820496988296509,
+  "pydantic_time_std": 0.022905103039815383,
+  "pydantic_mem_mean": 0.003023529052734375,
+  "pydantic_ips_mean": 1772841.7473684156,
+  "pydantic_ips_std": 14301.52514299031,
+  "pydantic_single_mean": 0.006771087646484375,
+  "satya_time_mean": 0.09015998840332032,
+  "satya_time_std": 0.0027360557856518104,
+  "satya_mem_mean": 0.7629852294921875,
+  "satya_ips_mean": 55501126.02734136,
+  "satya_ips_std": 1617145.984617248,
+  "satya_single_mean": 0.0033140182495117188,
+  "msgspec_time_mean": 0.4487205743789673,
+  "msgspec_time_std": 0.010486335423926888,
+  "msgspec_mem_mean": 0.0001220703125,
+  "msgspec_ips_mean": 11148142.4172532,
+  "msgspec_ips_std": 254495.36010062776,
+  "msgspec_single_mean": 0.043487548828125
+}

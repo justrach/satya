@@ -1,0 +1,225 @@
+{
+  "raw_results": {
+    "satya_simple_100_1": {
+      "avg_time": 0.0001104169998143334,
+      "std_dev": 3.4982779310565853e-06,
+      "ops_per_sec": 905657.6448205473,
+      "memory_delta": 0.0
+    },
+    "satya_simple_100_10": {
+      "avg_time": 3.824160012300126e-05,
+      "std_dev": 1.0985430954774584e-06,
+      "ops_per_sec": 2614953.340821447,
+      "memory_delta": 0.0
+    },
+    "satya_simple_100_100": {
+      "avg_time": 2.9658400126209018e-05,
+      "std_dev": 9.609356566785438e-07,
+      "ops_per_sec": 3371726.039653446,
+      "memory_delta": 0.0
+    },
+    "satya_simple_100_1000": {
+      "avg_time": 2.8608400134544355e-05,
+      "std_dev": 3.972863247198206e-07,
+      "ops_per_sec": 3495476.836513168,
+      "memory_delta": 0.0
+    },
+    "pydantic_simple_100": {
+      "avg_time": 4.134139981033513e-05,
+      "std_dev": 8.078041187786796e-07,
+      "ops_per_sec": 2418882.7775251223,
+      "memory_delta": 0.0625
+    },
+    "satya_simple_1000_1": {
+      "avg_time": 0.0010561501998381574,
+      "std_dev": 6.159325416929515e-05,
+      "ops_per_sec": 946835.0241786048,
+      "memory_delta": 0.0
+    },
+    "satya_simple_1000_10": {
+      "avg_time": 0.0002968416001749574,
+      "std_dev": 4.715706968816745e-06,
+      "ops_per_sec": 3368800.0583833377,
+      "memory_delta": 0.0
+    },
+    "satya_simple_1000_100": {
+      "avg_time": 0.00020740839991049143,
+      "std_dev": 2.314513780696048e-06,
+      "ops_per_sec": 4821405.4996401165,
+      "memory_delta": 0.0
+    },
+    "satya_simple_1000_1000": {
+      "avg_time": 0.00019838339994748821,
+      "std_dev": 1.0026623136430471e-05,
+      "ops_per_sec": 5040744.337805978,
+      "memory_delta": 0.0
+    },
+    "pydantic_simple_1000": {
+      "avg_time": 0.00040687500004423784,
+      "std_dev": 1.7501641282364393e-05,
+      "ops_per_sec": 2457757.296199752,
+      "memory_delta": 0.0
+    },
+    "satya_simple_10000_1": {
+      "avg_time": 0.010384091600099055,
+      "std_dev": 9.072682367626349e-05,
+      "ops_per_sec": 963011.5358289606,
+      "memory_delta": 0.0
+    },
+    "satya_simple_10000_10": {
+      "avg_time": 0.003069908400175336,
+      "std_dev": 1.9388590048470856e-05,
+      "ops_per_sec": 3257426.1823020047,
+      "memory_delta": 0.0
+    },
+    "satya_simple_10000_100": {
+      "avg_time": 0.002149916599955759,
+      "std_dev": 3.0466858635942372e-05,
+      "ops_per_sec": 4651343.219641999,
+      "memory_delta": 0.015625
+    },
+    "satya_simple_10000_1000": {
+      "avg_time": 0.0020147999999608145,
+      "std_dev": 3.395983973652659e-05,
+      "ops_per_sec": 4963271.788859682,
+      "memory_delta": 0.015625
+    },
+    "pydantic_simple_10000": {
+      "avg_time": 0.004446033200110833,
+      "std_dev": 0.00014322833800475403,
+      "ops_per_sec": 2249195.9798569917,
+      "memory_delta": 0.0
+    },
+    "satya_complex_100_1": {
+      "avg_time": 0.0001402667998263496,
+      "std_dev": 4.4361914241127174e-06,
+      "ops_per_sec": 712927.0798492592,
+      "memory_delta": 0.015625
+    },
+    "satya_complex_100_10": {
+      "avg_time": 6.959199981793063e-05,
+      "std_dev": 3.0114702341434794e-06,
+      "ops_per_sec": 1436946.7792508334,
+      "memory_delta": 0.0
+    },
+    "satya_complex_100_100": {
+      "avg_time": 6.0166399998706764e-05,
+      "std_dev": 2.3814734701682966e-06,
+      "ops_per_sec": 1662057.2279901977,
+      "memory_delta": 0.0
+    },
+    "satya_complex_100_1000": {
+      "avg_time": 6.056680012989091e-05,
+      "std_dev": 3.1317517152218533e-06,
+      "ops_per_sec": 1651069.5593219565,
+      "memory_delta": 0.0
+    },
+    "pydantic_complex_100": {
+      "avg_time": 0.00026285800013283735,
+      "std_dev": 1.665067032047829e-05,
+      "ops_per_sec": 380433.54187228164,
+      "memory_delta": 0.046875
+    },
+    "satya_complex_1000_1": {
+      "avg_time": 0.0010701913999582758,
+      "std_dev": 5.58950834613496e-05,
+      "ops_per_sec": 934412.2930150509,
+      "memory_delta": 0.0
+    },
+    "satya_complex_1000_10": {
+      "avg_time": 0.00032100000007631027,
+      "std_dev": 1.4890247006153746e-06,
+      "ops_per_sec": 3115264.7967672064,
+      "memory_delta": 0.0
+    },
+    "satya_complex_1000_100": {
+      "avg_time": 0.0002352665998841985,
+      "std_dev": 6.72435579508807e-07,
+      "ops_per_sec": 4250497.097727489,
+      "memory_delta": 0.0
+    },
+    "satya_complex_1000_1000": {
+      "avg_time": 0.00022882500034029362,
+      "std_dev": 6.927804150667021e-06,
+      "ops_per_sec": 4370151.856278227,
+      "memory_delta": 0.0
+    },
+    "pydantic_complex_1000": {
+      "avg_time": 0.0026341001997934655,
+      "std_dev": 5.269850332598365e-05,
+      "ops_per_sec": 379636.2796215603,
+      "memory_delta": 0.0
+    },
+    "satya_complex_10000_1": {
+      "avg_time": 0.01039027500009979,
+      "std_dev": 0.00014048951191461502,
+      "ops_per_sec": 962438.4340071805,
+      "memory_delta": 0.0
+    },
+    "satya_complex_10000_10": {
+      "avg_time": 0.003124224599923764,
+      "std_dev": 2.676263123337766e-05,
+      "ops_per_sec": 3200794.206743016,
+      "memory_delta": 0.0
+    },
+    "satya_complex_10000_100": {
+      "avg_time": 0.002185483200082672,
+      "std_dev": 1.4595805605574061e-05,
+      "ops_per_sec": 4575647.16105881,
+      "memory_delta": 0.0
+    },
+    "satya_complex_10000_1000": {
+      "avg_time": 0.001953975200194691,
+      "std_dev": 3.5970123811779015e-05,
+      "ops_per_sec": 5117772.220959415,
+      "memory_delta": 0.0
+    },
+    "pydantic_complex_10000": {
+      "avg_time": 0.026315849800266734,
+      "std_dev": 0.00048188738093946754,
+      "ops_per_sec": 379999.1288861453,
+      "memory_delta": 0.0
+    }
+  },
+  "statistics": {
+    "simple": {
+      "100": {
+        "satya_ops": 3495476.836513168,
+        "pydantic_ops": 2418882.7775251223,
+        "speedup": 1.4450790542605634
+      },
+      "1000": {
+        "satya_ops": 5040744.337805978,
+        "pydantic_ops": 2457757.296199752,
+        "speedup": 2.050952852667799
+      },
+      "10000": {
+        "satya_ops": 4963271.788859682,
+        "pydantic_ops": 2249195.9798569917,
+        "speedup": 2.206687115444363
+      }
+    },
+    "complex": {
+      "100": {
+        "satya_ops": 1662057.2279901977,
+        "pydantic_ops": 380433.54187228164,
+        "speedup": 4.368850390558307
+      },
+      "1000": {
+        "satya_ops": 4370151.856278227,
+        "pydantic_ops": 379636.2796215603,
+        "speedup": 11.511417877750262
+      },
+      "10000": {
+        "satya_ops": 5117772.220959415,
+        "pydantic_ops": 379999.1288861453,
+        "speedup": 13.467852507874545
+      }
+    }
+  },
+  "summary": {
+    "max_speedup": 13.467852507874545,
+    "avg_speedup": 5.841806633092641,
+    "best_batch_size": 1000
+  }
+}
