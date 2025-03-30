@@ -234,6 +234,32 @@ Lesson: When cross-compiling for ARM64 on x86_64 hosts:
 3. Specify `--platform linux/arm64` in docker-options
 4. Use the `--find-interpreter` flag to help maturin locate Python in the container
 
+### Controlling Python Versions in manylinux Containers
+
+By default, maturin will build for all Python versions found in a container. To build for a specific Python version in a matrix configuration:
+
+```yaml
+- name: Build wheels
+  uses: PyO3/maturin-action@v1
+  with:
+    target: aarch64
+    args: >-
+      --release 
+      --out dist 
+      --interpreter /opt/python/cp310-cp310/bin/python  # Use specific Python interpreter
+    manylinux: 2_28
+    container: quay.io/pypa/manylinux_2_28_aarch64
+```
+
+The path to Python interpreters in manylinux containers follows this pattern:
+- Python 3.8: `/opt/python/cp38-cp38/bin/python`
+- Python 3.9: `/opt/python/cp39-cp39/bin/python`
+- Python 3.10: `/opt/python/cp310-cp310/bin/python`
+- Python 3.11: `/opt/python/cp311-cp311/bin/python`
+- Python 3.12: `/opt/python/cp312-cp312/bin/python`
+
+Lesson: Specify `--interpreter` explicitly in matrix builds to avoid building for all Python versions in each job.
+
 ## Windows-Specific Considerations
 
 For Windows, specify the architecture in the python setup:
