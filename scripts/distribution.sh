@@ -51,16 +51,16 @@ fi
 
 echo "Starting release process with $VERSION_BUMP version bump..."
 
-# Get current version
-CURRENT_VERSION=$(grep -Po '(?<=version = ")[^"]*' pyproject.toml)
+# Get current version - macOS compatible
+CURRENT_VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
 echo "Current version: $CURRENT_VERSION"
 
 # Bump version in relevant files
 echo "Bumping version in pyproject.toml and Cargo.toml..."
 bump2version --current-version "$CURRENT_VERSION" "$VERSION_BUMP" pyproject.toml Cargo.toml
 
-# Get new version
-NEW_VERSION=$(grep -Po '(?<=version = ")[^"]*' pyproject.toml)
+# Get new version - macOS compatible
+NEW_VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
 echo "New version: $NEW_VERSION"
 
 # Generate changelog
