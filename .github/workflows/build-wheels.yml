@@ -11,9 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64]  # Start with just x86_64 for stability
-        python-version: ["3.8", "3.9", "3.10", "3.11"]  # Exclude 3.12 initially for stability
-      fail-fast: false  # Allow other matrix jobs to continue even if one fails
+        target: [x86_64, aarch64]  # Adding aarch64 back in since user says it works
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]  # Adding 3.12 back in
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,9 +36,9 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]  # Exclude 3.12 initially for stability
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]  # Adding 3.12 back in
         target: [x64]
-      fail-fast: false  # Allow other matrix jobs to continue even if one fails
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -60,42 +60,8 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]  # Exclude 3.12 initially for stability
-        target: [x86_64]  # Start with just x86_64 for stability
-      fail-fast: false  # Allow other matrix jobs to continue even if one fails
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist
-          sccache: 'true'
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-macos-${{ matrix.python-version }}-${{ matrix.target }}
-          path: dist
-
-  # Optional job for more experimental targets
-  extended:
-    runs-on: ubuntu-latest
-    needs: [linux, windows, macos]  # Only run after main platforms succeed
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            python-version: "3.12"
-            target: x86_64
-          - os: ubuntu-latest
-            python-version: "3.8"
-            target: aarch64
-          - os: macos-latest
-            python-version: "3.8"
-            target: aarch64
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]  # Adding 3.12 back in
+        target: [x86_64, aarch64]  # Adding aarch64 back in since user says it works
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -108,19 +74,17 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           sccache: 'true'
-          manylinux: auto
-        continue-on-error: true  # Allow failures here, we'll still get the core wheels
+          universal2: ${{ matrix.target == 'aarch64' }} # Build universal2 wheels for Apple Silicon
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-extended-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.target }}
+          name: wheels-macos-${{ matrix.python-version }}-${{ matrix.target }}
           path: dist
-        if: success()  # Only upload if build succeeded
 
   collect-wheels:
     name: Collect all wheels
     runs-on: ubuntu-latest
-    needs: [linux, windows, macos, extended]
+    needs: [linux, windows, macos]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -134,16 +98,20 @@ jobs:
           path: all-wheels
 
   release:
-    name: Release
+    name: Release to PyPI
     runs-on: ubuntu-latest
     needs: [collect-wheels]
+    # This conditional allows manual triggering without requiring the tag push
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: all-wheels
           path: dist
+      - name: List wheels
+        run: ls -la dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
-          skip_existing: true  # Skip any duplicates 
+          skip_existing: true 

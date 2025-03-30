@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bump_version.outputs.new_version }}
+      tag_name: ${{ steps.create_tag.outputs.tag_name }}
       release_created: ${{ steps.create_release.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
@@ -88,12 +89,16 @@ jobs:
           CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
           echo "changelog=$CHANGELOG" >> $GITHUB_OUTPUT
       
-      - name: Commit version bump
+      - name: Commit version bump and create tag
+        id: create_tag
         run: |
           git add pyproject.toml Cargo.toml CHANGELOG.md
           git commit -m "Bump version to v${{ steps.bump_version.outputs.new_version }}"
           git tag -a "v${{ steps.bump_version.outputs.new_version }}" -m "Release v${{ steps.bump_version.outputs.new_version }}"
           git push && git push --tags
+          
+          # Output the tag name for later use
+          echo "tag_name=v${{ steps.bump_version.outputs.new_version }}" >> $GITHUB_OUTPUT
       
       - name: Create GitHub Release
         id: create_release
@@ -112,49 +117,27 @@ jobs:
         id: release_created
         run: echo "release_created=true" >> $GITHUB_OUTPUT
 
-  # This will trigger the wheel building workflow which runs on tag push
-  wait_for_wheels:
+  # Trigger wheel building workflow
+  trigger_wheel_build:
     needs: prepare_release
     if: needs.prepare_release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Trigger build-wheels workflow
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: build-wheels.yml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ needs.prepare_release.outputs.tag_name }}
+      
       - name: Wait for wheel building
         run: |
-          echo "Triggered wheel building workflow via tag push"
-          echo "Waiting for wheel building to complete..."
-          # Sleep to allow wheels workflow to start
-          sleep 60
-          
-          # Poll for workflow completion
-          MAX_ATTEMPTS=45  # Increased to allow more time
-          ATTEMPT=0
-          
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            echo "Checking build-wheels workflow status (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
-            
-            # Get workflow runs for the tag
-            WORKFLOW_STATUS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                                  "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-wheels.yml/runs?event=push&status=completed" | \
-                               jq -r '.workflow_runs[] | select(.head_branch == "v${{ needs.prepare_release.outputs.version }}") | .conclusion')
-            
-            if [ "$WORKFLOW_STATUS" == "success" ]; then
-              echo "Wheel building completed successfully!"
-              break
-            elif [ "$WORKFLOW_STATUS" == "failure" ]; then
-              echo "Some wheels may have failed building, but we'll continue with what was built"
-              break  # Changed from exit 1 to break to continue even with partial failures
-            fi
-            
-            ATTEMPT=$((ATTEMPT+1))
-            sleep 60
-          done
-          
-          if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-            echo "Timed out waiting for wheel building to complete, but we'll continue anyway"
-          fi
+          echo "Triggered wheel building workflow"
+          echo "Wheel building will publish directly to PyPI upon completion"
+          echo "Monitor the workflow at: https://github.com/${{ github.repository }}/actions/workflows/build-wheels.yml"
 
   update_docs:
-    needs: [prepare_release, wait_for_wheels]
+    needs: [prepare_release, trigger_wheel_build]
     if: needs.prepare_release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
