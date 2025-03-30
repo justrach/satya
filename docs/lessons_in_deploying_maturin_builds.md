@@ -288,6 +288,7 @@ The path to Python interpreters in manylinux containers follows this pattern:
 - Python 3.10: `/opt/python/cp310-cp310/bin/python`
 - Python 3.11: `/opt/python/cp311-cp311/bin/python`
 - Python 3.12: `/opt/python/cp312-cp312/bin/python`
+- Python 3.13: `/opt/python/cp313-cp313/bin/python`
 
 Lesson: Specify `--interpreter` explicitly in matrix builds to avoid building for all Python versions in each job.
 
@@ -338,4 +339,4 @@ Lesson: Windows builds are generally simpler but be explicit about architecture.
 
 6. **Testing in virtual environments**: Always test installations in clean virtual environments to ensure dependencies are correctly specified.
 
-By following these lessons, you can create a robust deployment pipeline for your Rust-Python packages that works reliably across platforms and Python versions. 
+By following these lessons, you can create a robust deployment pipeline for your Rust-Python packages that works reliably across platforms and Python versions.
