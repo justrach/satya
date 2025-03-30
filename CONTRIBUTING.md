@@ -34,7 +34,7 @@ git checkout -b feature/your-feature-name
 
 ### Prerequisites
 
-- Python 3.7 or newer
+- Python 3.8 or newer
 - Rust toolchain 1.70.0 or newer
 - Maturin
 

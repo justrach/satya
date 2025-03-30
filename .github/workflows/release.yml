@@ -33,7 +33,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bumpversion gitpython pyyaml
+          python -m pip install bumpversion gitpython pyyaml pytest pytest-cov
+          
+          # Create virtual environment for any potential testing
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install maturin
 
       - name: Configure Git
         run: |

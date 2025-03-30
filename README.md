@@ -120,7 +120,7 @@ pip install satya
 ```
 
 ### Requirements:
-- Python 3.7 or higher
+- Python 3.8 or higher
 
 > **Note for developers:** If you're contributing to Satya or building from source, you'll need Rust toolchain 1.70.0 or higher:
 >
