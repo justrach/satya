@@ -1,3 +1,4 @@
-# Changes in v0.2.10
+# Changes in v0.2.11
 
-- fixed an issue where the builds were building for every python version in the virtualised envs (66bc859)
+- added support for python 3.13 as well! and enabled github releases (fb5821e)
+- added support for python 3.13 as well! and enabled github releases (de3879f)
