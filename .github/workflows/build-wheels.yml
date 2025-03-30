@@ -6,6 +6,11 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Add permissions needed for creating releases
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   linux-x86_64:
     runs-on: ubuntu-latest
