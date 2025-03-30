@@ -1,7 +1,11 @@
 [package]
 name = "satya"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
+authors = ["Rach Pradhan"]
+description = "Blazingly fast data validation for Python, powered by Rust"
+repository = "https://github.com/rachpradhan/satya"
+license = "Apache-2.0"
 
 [lib]
 name = "_satya"
@@ -10,4 +14,8 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.18.3", features = ["extension-module", "macros"] }
 serde = { version = "1.0", features = ["derive"] }
-regex = "1.9.1" 
+regex = "1.9.1"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"] 
