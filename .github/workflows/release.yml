@@ -20,13 +20,13 @@ jobs:
       version: ${{ steps.bump_version.outputs.new_version }}
       release_created: ${{ steps.create_release.outputs.release_created }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
@@ -39,7 +39,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install maturin
-
+      
       - name: Configure Git
         run: |
           git config --local user.email "action@github.com"
@@ -62,7 +62,7 @@ jobs:
           NEW_VERSION=$(grep -Po '(?<=version = ")[^"]*' pyproject.toml)
           echo "New version: $NEW_VERSION"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
+      
       - name: Generate changelog
         id: changelog
         run: |
@@ -159,12 +159,12 @@ jobs:
     if: needs.prepare_release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: main
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
