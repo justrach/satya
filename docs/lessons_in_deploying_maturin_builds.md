@@ -143,6 +143,37 @@ CURRENT_VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/version = 
 
 Lesson: Shell scripts should be tested on both Linux and macOS due to differences in command-line tools.
 
+### GitHub Releases Automation
+
+To automatically create GitHub Releases with attached wheels:
+
+```yaml
+- name: Extract version from tag
+  if: startsWith(github.ref, 'refs/tags/v')
+  id: get_version
+  run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+- name: Generate Release Notes
+  if: startsWith(github.ref, 'refs/tags/v')
+  run: |
+    # Generate changelog from git commits since last tag
+    git log --pretty=format:"* %s (%h)" $(git describe --tags --abbrev=0 HEAD^)..HEAD > release_notes.md
+    # Add header and details
+    echo "## My Project v${{ steps.get_version.outputs.VERSION }}" | cat - release_notes.md > temp && mv temp release_notes.md
+
+- name: Create GitHub Release
+  if: startsWith(github.ref, 'refs/tags/v')
+  uses: softprops/action-gh-release@v1
+  with:
+    files: dist/*
+    body_path: release_notes.md
+    draft: false
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Lesson: Include `fetch-depth: 0` in the checkout step to access git history for generating release notes. Use conditional execution with `if: startsWith(github.ref, 'refs/tags/v')` to only create releases for tag events.
+
 ### PyPI Publishing
 
 Secure PyPI publishing with GitHub Actions:

@@ -1,3 +1,3 @@
-# Changes in v0.2.9
+# Changes in v0.2.10
 
-- added docs to use in future projects with pyo3, also added a seperate runner for aarch64)(will remove it if it doesnt work (666bab3)
+- fixed an issue where the builds were building for every python version in the virtualised envs (66bc859)
