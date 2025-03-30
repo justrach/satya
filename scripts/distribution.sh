@@ -55,13 +55,34 @@ echo "Starting release process with $VERSION_BUMP version bump..."
 CURRENT_VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
 echo "Current version: $CURRENT_VERSION"
 
-# Bump version in relevant files
-echo "Bumping version in pyproject.toml and Cargo.toml..."
-bump2version --current-version "$CURRENT_VERSION" "$VERSION_BUMP" pyproject.toml Cargo.toml
-
-# Get new version - macOS compatible
-NEW_VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+# Calculate new version manually instead of using bump2version for README.md
+if [ "$VERSION_BUMP" == "patch" ]; then
+  IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+  NEW_VERSION="$major.$minor.$((patch + 1))"
+elif [ "$VERSION_BUMP" == "minor" ]; then
+  IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+  NEW_VERSION="$major.$((minor + 1)).0"
+elif [ "$VERSION_BUMP" == "major" ]; then
+  IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+  NEW_VERSION="$((major + 1)).0.0"
+fi
 echo "New version: $NEW_VERSION"
+
+# First update pyproject.toml and Cargo.toml
+echo "Updating version in pyproject.toml and Cargo.toml..."
+# For pyproject.toml
+sed -i.bak "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" pyproject.toml
+rm pyproject.toml.bak
+
+# For Cargo.toml
+sed -i.bak "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
+rm Cargo.toml.bak
+
+# Update README.md version manually
+echo "Updating version in README.md..."
+sed -i.bak "s/Satya is currently in alpha (v[0-9]\+\.[0-9]\+\.[0-9]\+)/Satya is currently in alpha (v$NEW_VERSION)/g" README.md || \
+sed -i.bak "s/Satya is currently in alpha (v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*)/Satya is currently in alpha (v$NEW_VERSION)/g" README.md
+rm README.md.bak
 
 # Generate changelog
 echo "Generating changelog..."
@@ -91,7 +112,7 @@ echo "Wheels built in ./dist/"
 
 # Commit changes
 echo "Committing version bump and changelog..."
-git add pyproject.toml Cargo.toml CHANGELOG.md
+git add pyproject.toml Cargo.toml CHANGELOG.md README.md
 git commit -m "Bump version to v$NEW_VERSION"
 
 # Create a tag
