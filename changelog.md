@@ -1,85 +1,41 @@
-# Changelog
+# Changes in v0.2.7
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.2.2] - 2024-03-17
-
-### Added
-- Enhanced email validation with RFC 5322 compliant regex pattern
-- Added comprehensive domain validation for email addresses
-- Added length validation for email addresses (max 254 characters)
-
-### Changed
-- Improved email validation error messages
-- Updated documentation with email validation examples
-
-## [0.2.1] - Previous Release
-
-### Added
-- Initial release with core validation features
-- Support for basic data types (string, integer, float, boolean)
-- Support for nested models and complex types
-- Stream processing capabilities
-- Basic email and URL validation
-- Pattern matching support
-- List and dictionary validation
-- Custom type support
-- Batch processing functionality
-
-### Performance
-- Up to 134x faster than Pydantic for large-scale validation tasks
-- Efficient memory usage with Rust-powered core
-- Optimized stream processing for large datasets
-
-## [0.2.3] - 2024-01-15
-
-### Added
-- Enhanced field validation rules in Satya
-  - Numeric constraints:
-    - `ge` (greater than or equal)
-    - `le` (less than or equal)
-    - `gt` (greater than)
-    - `lt` (less than)
-  - Array constraints:
-    - `min_items`
-    - `max_items`
-    - `unique_items`
-  - String validation:
-    - `email` format
-    - `url` format
-    - `pattern` (regex)
-  - Enum validation
-  - Documentation:
-    - `description`
-    - `example`
-
-### Example Usage
-<?python
-from satya import Model, Field
-
-class UserProfile(Model):
-    user_id: str = Field(pattern=r"^usr_[a-zA-Z0-9]+$", description="Unique user ID")
-    username: str = Field(min_length=3, max_length=50)
-    email: str = Field(email=True)
-    age: int = Field(ge=13, le=120)
-    tags: List[str] = Field(min_items=1, max_items=10, unique_items=True)
-    subscription: str = Field(enum=["free", "basic", "premium"])
-?>
-
-### Changed
-- Removed FieldConfig class in favor of direct Field attributes
-- Updated JSON schema generation to support new validation rules
-- Added regex dependency for pattern matching
-- Improved error messages for validation failures
-
-### Dependencies
-- Added regex = "1.9.1" to Cargo.toml
-- Updated pyo3 features to include "macros"
-
-### Technical Details
-- Field validation is now handled in Rust for better performance
-- JSON schema generation properly includes all validation rules
-- OpenAI schema adapter for LLM integrations 
+- first commit (6b14327)
+- revised the document, and updated a readme.md and llm.txt, also made it 50x faster (b249522)
+- updated readme (fa4b0bd)
+- added another example to the readme (c2c1b9d)
+- Create LICENSE (f01bcff)
+- added apache license (9f22cd0)
+- updated readme.md with emojis and encouraged people to use these optimisations! (302be5c)
+- added benchmark (ee8ff1f)
+- added benchmark to readme (047561c)
+- created dhi (c68fc0b)
+- working dhi with new syntax (7a645d1)
+- moved dhi to its own package (c91cfbf)
+- added new types (6302cdd)
+- added new JSON schema (31118a2)
+- added a real time benchmark, that uses github api calls to showcase the realtime performance of satya, also showcases its utility as a batch based processor (6ae9f52)
+- added the plots to the repository as well (c7092b4)
+- added ge and le functionms (5e2be38)
+- added new changes to api benchmark (e23bde1)
+- added changelog.md (cf846ef)
+- updated the cargo tomls (e6b967d)
+- added benchmarks (b96457e)
+- added benchmarks with msgspec (0f7fa8b)
+- fixed bug (d3b6cb4)
+- Merge pull request #5 from justrach/4-adding-the-default-field-seems-to-be-buggy (a42cd7f)
+- added fastapi integrations (230623d)
+- created a new library called tatsat to speed up things instead of using fastapi (2ebbd14)
+- adding email (a855cc8)
+- Merge pull request #7 from justrach/with-tatsat (f6b8f20)
+- added new github workflows (754f683)
+- updated tests (63be0bc)
+- trying out this new release flow (acdd270)
+- fixed the readme error that complies with PEP 621 (3935adc)
+- added an __init__.py that caused the first test to fail (d9bae66)
+- working models (dfc13f5)
+- added a new workflow (11bd214)
+- added new build wheels (4549ec8)
+- added scripts as well as redid the release versioning (0d79e9c)
+- updated the scripts (6b639bd)
+- updated script (710975f)
