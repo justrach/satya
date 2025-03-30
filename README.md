@@ -169,7 +169,7 @@ Apache 2.0
 **Note:** Performance numbers are from initial benchmarks and may vary based on use case and data structure complexity.
 
 ## Contact:
-- **GitHub Issues:** [repository-url/issues](https://github.com/rachpradhan/satya/issues)
+- **GitHub Issues:** [Satya Issues](https://github.com/justrach/satya)
 - **Author:** Rach Pradhan
 
 **Remember:** Satya is designed for scenarios where validation performance is critical. For general use cases, especially where features and ecosystem compatibility are more important than raw speed, Pydantic remains an excellent choice.
