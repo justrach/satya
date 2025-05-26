@@ -9,6 +9,13 @@ import re
 from uuid import UUID
 from enum import Enum
 from datetime import datetime
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    import json
+    HAS_ORJSON = False
+
 T = TypeVar('T')
 
 @dataclass
@@ -232,8 +239,19 @@ class StreamValidator:
         raise ValueError(f"Unsupported type: {field_type}")
     
     def get_type_info(self, type_name: str) -> Optional[Dict]:
-        """Get information about a registered custom type"""
+        """Get information about a registered type"""
         return self._type_registry.get(type_name)
+
+    def to_json(self, data: Dict, pretty: bool = False) -> str:
+        """Convert data to JSON string using fast Rust serialization"""
+        if pretty:
+            return self._validator.to_json_pretty(data)
+        else:
+            return self._validator.to_json(data)
+    
+    def from_json(self, json_str: str) -> Dict:
+        """Parse JSON string to Python dict using fast Rust deserialization"""
+        return self._validator.from_json(json_str)
 
 @dataclass
 class FieldConfig:
@@ -417,6 +435,34 @@ class Model(metaclass=ModelMetaclass):
         """Convert to dictionary"""
         return self._data.copy()
 
+    def json(self, **kwargs) -> str:
+        """Convert to JSON string using fast orjson if available"""
+        if HAS_ORJSON:
+            # orjson is much faster than standard json
+            return orjson.dumps(self._data, **kwargs).decode('utf-8')
+        else:
+            return json.dumps(self._data, **kwargs)
+    
+    def json_bytes(self, **kwargs) -> bytes:
+        """Convert to JSON bytes using fast orjson if available"""
+        if HAS_ORJSON:
+            return orjson.dumps(self._data, **kwargs)
+        else:
+            return json.dumps(self._data, **kwargs).encode('utf-8')
+    
+    @classmethod
+    def from_json(cls, json_str: Union[str, bytes]) -> 'Model':
+        """Create model instance from JSON string"""
+        if HAS_ORJSON:
+            if isinstance(json_str, str):
+                json_str = json_str.encode('utf-8')
+            data = orjson.loads(json_str)
+        else:
+            if isinstance(json_str, bytes):
+                json_str = json_str.decode('utf-8')
+            data = json.loads(json_str)
+        return cls(**data)
+
     @classmethod
     def json_schema(cls) -> dict:
         """Generate JSON Schema for this model"""
@@ -597,4 +643,11 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
         doc=model.__doc__
     )
 
-__all__ = ['StreamValidator'] 
+__all__ = [
+    'StreamValidator', 
+    'Model', 
+    'Field', 
+    'ValidationResult', 
+    'ValidationError',
+    'FieldConfig'
+] 

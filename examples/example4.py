@@ -112,7 +112,19 @@ def main():
     # Print the JSON Schema
     print("\nJSON Schema for User model:")
     schema = User.json_schema()
-    print(json.dumps(schema, indent=2))
+    
+    # Use fast JSON serialization instead of json.dumps
+    if hasattr(User, 'json'):
+        # Use the new fast JSON method if available
+        try:
+            import orjson
+            print(orjson.dumps(schema, option=orjson.OPT_INDENT_2).decode('utf-8'))
+        except ImportError:
+            import json
+            print(json.dumps(schema, indent=2))
+    else:
+        import json
+        print(json.dumps(schema, indent=2))
 
     # Valid user data
     valid_user = {
@@ -159,6 +171,24 @@ def main():
     result = validator.validate(valid_user)
     if result.is_valid:
         print("\n✅ Valid user data passed all validations!")
+        
+        # Demonstrate fast JSON serialization
+        user_instance = User(**valid_user)
+        print("\n🚀 Fast JSON serialization:")
+        json_str = user_instance.json()
+        print(f"JSON length: {len(json_str)} characters")
+        
+        # Demonstrate fast JSON parsing
+        print("\n🚀 Fast JSON parsing:")
+        parsed_user = User.from_json(json_str)
+        print(f"Parsed user: {parsed_user.username}")
+        
+        # Demonstrate validator JSON methods
+        print("\n🚀 Validator JSON methods:")
+        validator_json = validator.to_json(valid_user, pretty=True)
+        print("Pretty JSON from validator:")
+        print(validator_json[:200] + "..." if len(validator_json) > 200 else validator_json)
+        
     else:
         print("\n❌ Validation failed!")
         for error in result.errors:

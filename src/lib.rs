@@ -1,8 +1,7 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt;
 use regex::Regex;  // Use the regex crate directly
+use serde_json;
 
 #[pyclass(name = "StreamValidatorCore")]
 struct StreamValidatorCore {
@@ -135,6 +134,31 @@ impl StreamValidatorCore {
 
         Ok(true)
     }
+
+    /// Convert a Python object to JSON string using fast serialization
+    fn to_json(&self, py_obj: &PyAny) -> PyResult<String> {
+        // Convert PyAny to serde_json::Value for serialization
+        let json_value = self.py_to_json_value(py_obj)?;
+        serde_json::to_string(&json_value)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("JSON serialization error: {}", e)))
+    }
+
+    /// Convert a Python object to pretty-printed JSON string
+    fn to_json_pretty(&self, py_obj: &PyAny) -> PyResult<String> {
+        let json_value = self.py_to_json_value(py_obj)?;
+        serde_json::to_string_pretty(&json_value)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("JSON serialization error: {}", e)))
+    }
+
+    /// Parse JSON string to Python object
+    fn from_json(&self, json_str: &str) -> PyResult<PyObject> {
+        let json_value: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("JSON parsing error: {}", e)))?;
+        
+        Python::with_gil(|py| {
+            self.json_value_to_py(py, &json_value)
+        })
+    }
 }
 
 // Private implementation - not exposed to Python
@@ -162,6 +186,79 @@ impl StreamValidatorCore {
         
         // Finally treat everything else as a custom type
         Ok(FieldType::Custom(field_type.to_string()))
+    }
+
+    /// Convert Python object to serde_json::Value
+    fn py_to_json_value(&self, py_obj: &PyAny) -> PyResult<serde_json::Value> {
+        if py_obj.is_none() {
+            Ok(serde_json::Value::Null)
+        } else if let Ok(b) = py_obj.downcast::<pyo3::types::PyBool>() {
+            Ok(serde_json::Value::Bool(b.is_true()))
+        } else if let Ok(i) = py_obj.downcast::<pyo3::types::PyInt>() {
+            let val: i64 = i.extract()?;
+            Ok(serde_json::Value::Number(serde_json::Number::from(val)))
+        } else if let Ok(f) = py_obj.downcast::<pyo3::types::PyFloat>() {
+            let val: f64 = f.extract()?;
+            if let Some(num) = serde_json::Number::from_f64(val) {
+                Ok(serde_json::Value::Number(num))
+            } else {
+                Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid float value"))
+            }
+        } else if let Ok(s) = py_obj.downcast::<pyo3::types::PyString>() {
+            Ok(serde_json::Value::String(s.to_str()?.to_string()))
+        } else if let Ok(list) = py_obj.downcast::<pyo3::types::PyList>() {
+            let mut json_array = Vec::new();
+            for item in list.iter() {
+                json_array.push(self.py_to_json_value(item)?);
+            }
+            Ok(serde_json::Value::Array(json_array))
+        } else if let Ok(dict) = py_obj.downcast::<pyo3::types::PyDict>() {
+            let mut json_object = serde_json::Map::new();
+            for (key, value) in dict.iter() {
+                let key_str = if let Ok(s) = key.downcast::<pyo3::types::PyString>() {
+                    s.to_str()?.to_string()
+                } else {
+                    key.str()?.to_str()?.to_string()
+                };
+                json_object.insert(key_str, self.py_to_json_value(value)?);
+            }
+            Ok(serde_json::Value::Object(json_object))
+        } else {
+            // Fallback: convert to string representation
+            Ok(serde_json::Value::String(py_obj.str()?.to_str()?.to_string()))
+        }
+    }
+
+    /// Convert serde_json::Value to Python object
+    fn json_value_to_py(&self, py: Python, json_value: &serde_json::Value) -> PyResult<PyObject> {
+        match json_value {
+            serde_json::Value::Null => Ok(py.None()),
+            serde_json::Value::Bool(b) => Ok(b.to_object(py)),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Ok(i.to_object(py))
+                } else if let Some(f) = n.as_f64() {
+                    Ok(f.to_object(py))
+                } else {
+                    Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid number"))
+                }
+            }
+            serde_json::Value::String(s) => Ok(s.to_object(py)),
+            serde_json::Value::Array(arr) => {
+                let py_list = pyo3::types::PyList::empty(py);
+                for item in arr {
+                    py_list.append(self.json_value_to_py(py, item)?)?;
+                }
+                Ok(py_list.to_object(py))
+            }
+            serde_json::Value::Object(obj) => {
+                let py_dict = pyo3::types::PyDict::new(py);
+                for (key, value) in obj {
+                    py_dict.set_item(key, self.json_value_to_py(py, value)?)?;
+                }
+                Ok(py_dict.to_object(py))
+            }
+        }
     }
 
     fn validate_value(&self, value: &PyAny, field_type: &FieldType, constraints: &FieldConstraints) -> PyResult<()> {
@@ -290,7 +387,13 @@ impl StreamValidatorCore {
                         ));
                     }
                 }
-                // ... similar for max_items
+                if let Some(max_items) = constraints.max_items {
+                    if list.len() > max_items {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("List must have at most {} items", max_items)
+                        ));
+                    }
+                }
                 
                 // Add unique items validation
                 if constraints.unique_items {
@@ -389,9 +492,15 @@ fn validate_url(s: &str) -> bool {
 }
 
 fn regex_match(s: &str, pattern: &str) -> bool {
-    // Basic pattern matching (can be enhanced with proper regex)
-    // For now, just check if pattern exists in string
-    s.contains(pattern)
+    // Proper regex pattern matching with error handling
+    match Regex::new(pattern) {
+        Ok(regex) => regex.is_match(s),
+        Err(_) => {
+            // If regex compilation fails, fall back to simple string contains
+            // This provides backward compatibility for simple patterns
+            s.contains(pattern)
+        }
+    }
 }
 
 #[pymodule]
