@@ -43,6 +43,7 @@ enum FieldType {
     Integer,
     Float,
     Boolean,
+    Decimal,  // Add Decimal support
     List(Box<FieldType>),
     Dict(Box<FieldType>),
     Custom(String),  // Reference to a custom type name
@@ -145,6 +146,7 @@ impl StreamValidatorCore {
             "str" | "string" | "email" | "url" | "uuid" | "date-time" => return Ok(FieldType::String),
             "int" | "integer" => return Ok(FieldType::Integer),
             "float" | "number" => return Ok(FieldType::Float),
+            "decimal" => return Ok(FieldType::Decimal),  // Add decimal support
             "bool" | "boolean" => return Ok(FieldType::Boolean),
             "any" => return Ok(FieldType::Any),
             _ => {}
@@ -277,6 +279,71 @@ impl StreamValidatorCore {
             FieldType::Boolean => {
                 if !value.is_instance_of::<pyo3::types::PyBool>()? {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected boolean"));
+                }
+            }
+            FieldType::Decimal => {
+                // Handle Decimal type - accept strings, ints, floats, or Decimal objects
+                let num = if value.is_instance_of::<pyo3::types::PyString>()? {
+                    // Parse string as decimal
+                    let s = value.downcast::<pyo3::types::PyString>()?.to_str()?;
+                    s.parse::<f64>().map_err(|_| {
+                        PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid decimal format")
+                    })?
+                } else if value.is_instance_of::<pyo3::types::PyInt>()? {
+                    value.downcast::<pyo3::types::PyInt>()?.extract::<f64>()?
+                } else if value.is_instance_of::<pyo3::types::PyFloat>()? {
+                    value.downcast::<pyo3::types::PyFloat>()?.extract::<f64>()?
+                } else {
+                    // Try to extract as any numeric type (handles Decimal objects)
+                    match value.extract::<f64>() {
+                        Ok(val) => val,
+                        Err(_) => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected decimal number"))
+                    }
+                };
+
+                // Apply same numeric constraints as Float/Integer
+                if let Some(ge) = constraints.ge {
+                    if num < ge as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be >= {}", ge)
+                        ));
+                    }
+                }
+                if let Some(le) = constraints.le {
+                    if num > le as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be <= {}", le)
+                        ));
+                    }
+                }
+                if let Some(gt) = constraints.gt {
+                    if num <= gt as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be > {}", gt)
+                        ));
+                    }
+                }
+                if let Some(lt) = constraints.lt {
+                    if num >= lt as f64 {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be < {}", lt)
+                        ));
+                    }
+                }
+
+                if let Some(min_val) = constraints.min_value {
+                    if num < min_val {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be >= {}", min_val)
+                        ));
+                    }
+                }
+                if let Some(max_val) = constraints.max_value {
+                    if num > max_val {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("Value must be <= {}", max_val)
+                        ));
+                    }
                 }
             }
             FieldType::List(inner_type) => {

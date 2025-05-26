@@ -9,6 +9,7 @@ import re
 from uuid import UUID
 from enum import Enum
 from datetime import datetime
+from decimal import Decimal
 T = TypeVar('T')
 
 @dataclass
@@ -183,6 +184,7 @@ class StreamValidator:
             datetime: 'date-time',  # Now datetime will match
             UUID: 'uuid',
             Any: 'any',
+            Decimal: 'decimal',  # Add Decimal support
         }
         
         # Get the base type for Optional/Union types
@@ -192,6 +194,9 @@ class StreamValidator:
             types = [t for t in args if t != type(None)]
             if len(types) == 1:
                 return self._get_type_string(types[0])
+            elif len(types) > 1:
+                # For complex Union types with multiple non-None types, treat as 'any'
+                return 'any'
         
         # Handle List and Dict
         if get_origin(field_type) == list:
@@ -225,6 +230,7 @@ class StreamValidator:
             'date': 'date-time',
             'UUID': 'uuid',
             'Any': 'any',
+            'Decimal': 'decimal',  # Add Decimal support
         }
         if type_name in name_map:
             return name_map[type_name]

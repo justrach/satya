@@ -1,0 +1,98 @@
+{
+  "dataset_size": 100000,
+  "avg_entity_size": 3095,
+  "total_data_size_mb": 295.1622009277344,
+  "benchmarks": [
+    {
+      "total_time": 0.04636716842651367,
+      "items_per_second": 2156698.4440399427,
+      "valid_count": 100000,
+      "error_count": 0,
+      "avg_time_per_item": 0.0004636716842651367,
+      "library": "Satya (batch=1000)",
+      "batch_size": 1000
+    },
+    {
+      "total_time": 0.04771900177001953,
+      "items_per_second": 2095601.2550712472,
+      "valid_count": 100000,
+      "error_count": 0,
+      "avg_time_per_item": 0.0004771900177001953,
+      "library": "Satya (batch=5000)",
+      "batch_size": 5000
+    },
+    {
+      "total_time": 0.05097317695617676,
+      "items_per_second": 1961816.1152869312,
+      "valid_count": 100000,
+      "error_count": 0,
+      "avg_time_per_item": 0.0005097317695617676,
+      "library": "Satya (batch=10000)",
+      "batch_size": 10000
+    },
+    {
+      "total_time": 0.052345991134643555,
+      "items_per_second": 1910365.9675252214,
+      "valid_count": 100000,
+      "error_count": 0,
+      "avg_time_per_item": 0.0005234599113464355,
+      "library": "Satya (batch=20000)",
+      "batch_size": 20000
+    },
+    {
+      "total_time": 0.15665292739868164,
+      "items_per_second": 638353.8543489841,
+      "valid_count": 100000,
+      "error_count": 0,
+      "avg_time_per_item": 0.0015665292739868164,
+      "library": "Satya (Single)",
+      "batch_size": 1
+    },
+    {
+      "total_time": 0.050453901290893555,
+      "items_per_second": 1982007.2866803075,
+      "valid_count": 100000,
+      "error_count": 0,
+      "avg_time_per_item": 0.0005045390129089356,
+      "library": "msgspec"
+    }
+  ],
+  "memory_usage": {
+    "Satya (batch=1000)": {
+      "max_memory_mb": 1375.78125,
+      "min_memory_mb": 1375.78125,
+      "avg_memory_mb": 1375.78125,
+      "memory_samples": 10
+    },
+    "Satya (batch=5000)": {
+      "max_memory_mb": 1376.828125,
+      "min_memory_mb": 1376.78125,
+      "avg_memory_mb": 1376.81875,
+      "memory_samples": 10
+    },
+    "Satya (batch=10000)": {
+      "max_memory_mb": 1377.53125,
+      "min_memory_mb": 1377.109375,
+      "avg_memory_mb": 1377.3380681818182,
+      "memory_samples": 11
+    },
+    "Satya (batch=20000)": {
+      "max_memory_mb": 1379.109375,
+      "min_memory_mb": 1378.921875,
+      "avg_memory_mb": 1378.9602272727273,
+      "memory_samples": 11
+    },
+    "Satya (Single)": {
+      "max_memory_mb": 1379.328125,
+      "min_memory_mb": 1379.328125,
+      "avg_memory_mb": 1379.328125,
+      "memory_samples": 21
+    },
+    "msgspec": {
+      "max_memory_mb": 1379.328125,
+      "min_memory_mb": 1379.328125,
+      "avg_memory_mb": 1379.328125,
+      "memory_samples": 12
+    }
+  }
+}
