@@ -1,7 +1,5 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt;
 use regex::Regex;  // Use the regex crate directly
 
 #[pyclass(name = "StreamValidatorCore")]
@@ -357,7 +355,13 @@ impl StreamValidatorCore {
                         ));
                     }
                 }
-                // ... similar for max_items
+                if let Some(max_items) = constraints.max_items {
+                    if list.len() > max_items {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            format!("List must have at most {} items", max_items)
+                        ));
+                    }
+                }
                 
                 // Add unique items validation
                 if constraints.unique_items {

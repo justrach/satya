@@ -1,3 +1,17 @@
+# Changes in v0.2.16 - 🔧 Bug Fix Release
+
+## 🐛 **Bug Fixes**
+- **Fixed Rust compilation warnings**: Removed unused imports (`std::error::Error`, `std::fmt`)
+- **Implemented missing max_items validation**: Added proper validation for maximum list/array items
+- **Code cleanup**: Improved code quality and removed dead code warnings
+
+## 🔧 **Technical Improvements**
+- **Cleaner Rust code**: Eliminated all compiler warnings
+- **Complete array validation**: Both `min_items` and `max_items` constraints now fully implemented
+- **Better error messages**: More descriptive validation errors for array constraints
+
+---
+
 # Changes in v0.2.15 - 🚀 BREAKTHROUGH RELEASE
 
 ## 🎉 HISTORIC ACHIEVEMENT: Satya BEATS msgspec!

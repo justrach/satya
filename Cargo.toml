@@ -1,6 +1,6 @@
 [package]
 name = "satya"
-version = "0.2.15"
+version = "0.2.16"
 edition = "2021"
 authors = ["Rach Pradhan"]
 description = "Blazingly fast data validation for Python, powered by Rust"
