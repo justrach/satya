@@ -1,0 +1,38 @@
+{
+  "Satya": {
+    "total_events": 50000.0,
+    "processed_events": 50000.0,
+    "error_events": 0.0,
+    "total_time": 0.02211618423461914,
+    "validation_time": 0.022110700607299805,
+    "validation_overhead_percent": 99.97520536426553,
+    "avg_throughput": 2260787.8225997714,
+    "peak_throughput": 2371807.2834200407,
+    "min_throughput": 2104306.642584788,
+    "throughput_std": 95253.49930074648
+  },
+  "Pydantic": {
+    "total_events": 50000.0,
+    "processed_events": 47990.0,
+    "error_events": 2010.0,
+    "total_time": 0.15926814079284668,
+    "validation_time": 0.15925979614257812,
+    "validation_overhead_percent": 99.99476062806598,
+    "avg_throughput": 313935.98086281976,
+    "peak_throughput": 317034.5734629397,
+    "min_throughput": 297975.56123898836,
+    "throughput_std": 5952.143502498144
+  },
+  "msgspec": {
+    "total_events": 50000.0,
+    "processed_events": 49498.0,
+    "error_events": 502.0,
+    "total_time": 0.028604984283447266,
+    "validation_time": 0.02860283851623535,
+    "validation_overhead_percent": 99.99249862474787,
+    "avg_throughput": 1747947.123639334,
+    "peak_throughput": 1745735.4532589694,
+    "min_throughput": 1464593.8962218033,
+    "throughput_std": 110511.73745811965
+  }
+}
