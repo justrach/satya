@@ -22,36 +22,54 @@ Satya is a blazingly fast data validation library for Python, powered by Rust. E
 
 ## Key Features:
 - **Lightning fast validation** (134x faster than Pydantic in initial benchmarks)
+- **Pydantic-like DX**: automatic validation on instantiation, exception-based errors, familiar helper methods
 - **Stream processing support** for handling large datasets
 - **Rust-powered core** with a Pythonic API
+- **Native Rust-based JSON parsing** for improved performance
 - **Support for nested models and complex types**
 - **Compatible with standard Python type hints**
 - **Minimal memory overhead**
 
-## Quick Start:
+## Quick Start (new DX):
 ```python
-from satya import Model, Field
+from satya import Model, Field, ModelValidationError
 
 class User(Model):
     id: int = Field(description="User ID")
     name: str = Field(description="User name")
     email: str = Field(description="Email address")
     active: bool = Field(default=True)
+    # Optional: control how to handle extra fields (ignore | allow | forbid)
+    model_config = {"extra": "forbid"}
+
+# 1) Automatic validation on instantiation
+user = User(id=1, name="Ada", email="ada@example.com")
+
+# 2) Raises on validation error
+try:
+    User(id="not-int", name="Linus", email="linus@example.com")
+except ModelValidationError as e:
+    print("Validation failed:", e.errors)
+
+# 3) Helper methods
+user2 = User.model_validate({"id": 2, "name": "Grace", "email": "grace@example.com"})
+json_str = user2.model_dump_json()
+schema = User.model_json_schema()
 ```
-## Example 2:
+## Example 2 (new DX):
 
-```python 
+```python
 from typing import Optional
-from satya import Model, Field, List
+from satya import Model, Field, List, ModelValidationError
 
-# Enable pretty printing for this module
+# Pretty printing (optional)
 Model.PRETTY_REPR = True
 
 class User(Model):
     id: int
     name: str = Field(default='John Doe')
     email: str = Field(email=True)  # RFC 5322 compliant email validation
-    signup_ts: Optional[str] = Field(required=False)  # Using str for datetime
+    signup_ts: Optional[str] = Field(required=False)
     friends: List[int] = Field(default=[])
 
 external_data = {
@@ -60,40 +78,83 @@ external_data = {
     'signup_ts': '2017-06-01 12:22',
     'friends': [1, '2', b'3']
 }
-validator = User.validator()
-result = validator.validate(external_data)
-user = User(**result.value)
-print(user)
-#> User(id=123, name='John Doe', email='john.doe@example.com', signup_ts='2017-06-01 12:22', friends=[1, 2, 3])
+
+try:
+    user = User(**external_data)
+    print(user)
+except ModelValidationError as e:
+    print("Errors:", e.errors)
+
+# Alternative (explicit):
+user = User.model_validate(external_data)
+print(user.model_dump())
+```
+
+### Pydantic-like API overview
+
+```python
+User.model_validate(dict)            # -> User instance (raises on error)
+User.model_validate_json(str)        # -> User instance from JSON
+User.parse_obj(dict)                 # alias of model_validate
+User.parse_raw(str)                  # alias of model_validate_json
+User.model_construct(**data)         # construct without validation
+
+u.model_dump(exclude_none=True)      # dict
+u.model_dump_json(exclude_none=True) # JSON string
+User.model_json_schema()             # JSON Schema for the model
+```
+
+Extra fields handling per model:
+
+```python
+class A(Model):
+    x: int
+    model_config = {"extra": "ignore"}  # or "allow" | "forbid"
 ```
 
 ## 🚀 Performance
 
-Our benchmarks show significant performance improvements over existing solutions:
+Our comprehensive benchmarks show significant performance improvements over existing solutions:
 
 <p align="center">
-  <img src="benchmark_results.png" alt="Satya Benchmark Results" width="800"/>
+  <img src="benchmarks/results/streaming_ips_object.png" alt="Satya Performance Comparison" width="800"/>
 </p>
 
-### 📊 Large Dataset Processing (5M records)
-- **Satya:** 207,321 items/second
-- **Pydantic:** 72,302 items/second
-- **Speed improvement:** 2.9x
-- **Memory usage:** Nearly identical (Satya: 158.2MB, Pydantic: 162.5MB)
+<p align="center">
+  <img src="benchmarks/results/streaming_mem_object.png" alt="Satya Memory Usage" width="800"/>
+</p>
 
-### 🌐 Web Service Benchmark (10,000 requests)
-- **Satya:** 177,790 requests/second
-- **Pydantic:** 1,323 requests/second
-- **Average latency improvement:** 134.4x
-- **P99 latency improvement:** 134.4x
+### 📊 Latest Benchmark Results (5M records)
 
-> **Note:** All benchmarks were run on identical hardware using standardized test cases. Your results may vary depending on your specific use case and data structure complexity.
+| Validation Mode | Throughput | Memory Usage | Use Case |
+|-----------------|------------|--------------|----------|
+| **Satya dict-path** | **5.7M items/s** | 7.2MB | Pre-parsed Python dicts |
+| **Satya JSON streaming** | **3.2M items/s** | 0.4MB | Large JSON datasets |
+| **Satya JSON non-stream** | 1.2M items/s | 0.4MB | Small JSON datasets |
+| **orjson + Satya dict** | 2.6M items/s | 21.5MB | End-to-end JSON processing |
+| **msgspec + JSON** | 7.5M items/s | 0.4MB | Comparison baseline |
+| **Pydantic + orjson** | 0.8M items/s | 0.4MB | Traditional validation |
+
+### 🎯 Performance Highlights
+- **7.9x faster** than Pydantic for dict validation
+- **4x faster** than Pydantic for JSON processing  
+- **Memory bounded**: <8MB even for 5M records
+- **Competitive with msgspec**: 76% of msgspec's speed with more flexibility
+- **Streaming support**: Process unlimited datasets with constant memory
+
+### 📈 Scale Performance Analysis
+- **Small Scale (100k)**: 7.9M items/s - matches msgspec performance
+- **Large Scale (5M)**: 5.7M items/s - maintains high throughput
+- **Memory Efficiency**: Bounded growth, predictable resource usage
+
+> **Note:** Benchmarks run on Apple Silicon M-series. Results include comprehensive comparison with msgspec and Pydantic using fair JSON parsing (orjson). See `/benchmarks/` for detailed methodology.
 
 ## 🎯 Key Features
 
 - **🏃‍♂️ Lightning Fast:** Up to 134x faster than Pydantic
 - **🌊 Stream Processing:** Efficient handling of large datasets
 - **🦀 Rust-Powered:** High-performance core with zero-cost abstractions
+- **📝 Fast JSON Parsing:** Native Rust-based JSON parsing for better performance
 - **🐍 Pythonic API:** Familiar interface for Python developers
 - **🎯 Type Support:** Full compatibility with Python type hints
 - **📧 RFC Compliant:** Email validation following RFC 5322 standards
@@ -137,8 +198,22 @@ pip install satya
 > rustc --version
 > ```
 
+## Breaking changes in v0.3 (DX overhaul)
+
+We introduced a Pydantic-like developer experience. Notable changes:
+
+- __Automatic validation on instantiation__: `User(**data)` now validates and raises `ModelValidationError` on failure.
+- __Exception-based errors__: Instead of returning `ValidationResult` by default, user code typically catches `ModelValidationError`.
+- __Helper methods__: `model_validate`, `model_validate_json`, `model_dump`, `model_dump_json`, `model_json_schema`, `parse_obj`, `parse_raw`, `model_construct`.
+- __JSON Schema__: field examples use `example` key.
+- __Extras handling__: per-class `model_config = {"extra": "ignore|allow|forbid"}`.
+
+Still available:
+
+- __Streaming validation__: For high-throughput pipelines use the validator: `User.validator().validate_stream(iterable, collect_errors=True)`.
+
 ## Current Status:
-Satya is currently in alpha (v0.2.1). While the core functionality is stable, we're actively working on:
+Satya is currently in alpha (v0.3). While the core functionality is stable, we're actively working on:
 - Expanding type support
 - Adding more validation features
 - Improving error messages
@@ -173,3 +248,25 @@ Apache 2.0
 - **Author:** Rach Pradhan
 
 **Remember:** Satya is designed for scenarios where validation performance is critical. For general use cases, especially where features and ecosystem compatibility are more important than raw speed, Pydantic remains an excellent choice.
+
+### Using Satya's JSON Parser
+
+Satya includes a fast Rust-based JSON parser that you can use directly:
+
+```python
+from satya import load_json  # Rust-backed JSON loader
+import json
+import time
+
+json_str = '{"name": "example", "value": 123, "items": [1, 2, 3]}'
+
+start = time.time()
+parsed_data = load_json(json_str)
+end = time.time()
+print(f"Satya parsing time: {(end - start)*1000:.6f} ms")
+
+start = time.time()
+parsed_data_py = json.loads(json_str)
+end = time.time()
+print(f"Standard json parsing time: {(end - start)*1000:.6f} ms")
+```
