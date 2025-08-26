@@ -1,0 +1,22 @@
+{
+  "mode": "ndjson",
+  "items": 500000,
+  "batch": 50000,
+  "fields": 3,
+  "string_constraints": false,
+  "number_constraints": false,
+  "regex": false,
+  "invalid_rate": 0.0,
+  "dict_time": 0.4709117920137942,
+  "dict_mem": 7.200286865234375,
+  "dict_ips": 1061769.971530791,
+  "json_loads_time": 0.8291292920184787,
+  "json_loads_mem": 33.6661262512207,
+  "json_loads_ips": 603042.257478049,
+  "json_time": 2.1586611249949783,
+  "json_mem": 30.91121196746826,
+  "json_ips": 231625.05416461008,
+  "json_stream_time": 1.4999102080182638,
+  "json_stream_mem": 9.080875396728516,
+  "json_stream_ips": 333353.28830158326
+}

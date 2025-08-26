@@ -30,9 +30,9 @@ Satya is a blazingly fast data validation library for Python, powered by Rust. I
 - **Compatible with standard Python type hints**
 - **Minimal memory overhead**
 
-## Quick Start:
+## Quick Start (new DX):
 ```python
-from satya import Model, Field
+from satya import Model, Field, ModelValidationError
 
 class User(Model):
     id: int = Field(description="User ID")
@@ -51,19 +51,19 @@ for valid_item in validator.validate_stream(data):
 
 ## Example 2:
 
-```python 
+```python
 from typing import Optional
 from decimal import Decimal
 from satya import Model, Field, List
 
-# Enable pretty printing for this module
+# Pretty printing (optional)
 Model.PRETTY_REPR = True
 
 class User(Model):
     id: int
     name: str = Field(default='John Doe')
     email: str = Field(email=True)  # RFC 5322 compliant email validation
-    signup_ts: Optional[str] = Field(required=False)  # Using str for datetime
+    signup_ts: Optional[str] = Field(required=False)
     friends: List[int] = Field(default=[])
     balance: Decimal = Field(ge=0, description="Account balance")  # Decimal support
 
@@ -114,7 +114,7 @@ Memory usage remains comparable across all approaches, demonstrating that perfor
 Our earlier benchmarks also show significant performance improvements:
 
 <p align="center">
-  <img src="benchmark_results.png" alt="Satya Benchmark Results" width="800"/>
+  <img src="benchmarks/results/streaming_ips_object.png" alt="Satya Performance Comparison" width="800"/>
 </p>
 
 #### Large Dataset Processing (5M records)
@@ -129,7 +129,28 @@ Our earlier benchmarks also show significant performance improvements:
 - **Average latency improvement:** 134.4x
 - **P99 latency improvement:** 134.4x
 
-> **Note:** All benchmarks were run on identical hardware using standardized test cases. Your results may vary depending on your specific use case and data structure complexity.
+| Validation Mode | Throughput | Memory Usage | Use Case |
+|-----------------|------------|--------------|----------|
+| **Satya dict-path** | **5.7M items/s** | 7.2MB | Pre-parsed Python dicts |
+| **Satya JSON streaming** | **3.2M items/s** | 0.4MB | Large JSON datasets |
+| **Satya JSON non-stream** | 1.2M items/s | 0.4MB | Small JSON datasets |
+| **orjson + Satya dict** | 2.6M items/s | 21.5MB | End-to-end JSON processing |
+| **msgspec + JSON** | 7.5M items/s | 0.4MB | Comparison baseline |
+| **Pydantic + orjson** | 0.8M items/s | 0.4MB | Traditional validation |
+
+### 🎯 Performance Highlights
+- **7.9x faster** than Pydantic for dict validation
+- **4x faster** than Pydantic for JSON processing  
+- **Memory bounded**: <8MB even for 5M records
+- **Competitive with msgspec**: 76% of msgspec's speed with more flexibility
+- **Streaming support**: Process unlimited datasets with constant memory
+
+### 📈 Scale Performance Analysis
+- **Small Scale (100k)**: 7.9M items/s - matches msgspec performance
+- **Large Scale (5M)**: 5.7M items/s - maintains high throughput
+- **Memory Efficiency**: Bounded growth, predictable resource usage
+
+> **Note:** Benchmarks run on Apple Silicon M-series. Results include comprehensive comparison with msgspec and Pydantic using fair JSON parsing (orjson). See `/benchmarks/` for detailed methodology.
 
 ## 🎯 Key Features
 

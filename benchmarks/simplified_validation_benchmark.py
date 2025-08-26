@@ -2,9 +2,7 @@
 import gc
 import time
 import json
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
+import argparse
 import os
 
 # Ensure the results directory exists
@@ -193,6 +191,9 @@ def create_visualization(results):
     """
     Create bar charts showing validation speed comparison.
     """
+    # Import matplotlib lazily so benchmark can run without it
+    import matplotlib.pyplot as plt
+    import matplotlib as mpl
     # Set style
     plt.style.use('ggplot')
     mpl.rcParams['font.family'] = 'sans-serif'
@@ -286,6 +287,16 @@ def create_visualization(results):
     print(f"Relative performance chart saved to '{rel_output_path}'")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run simplified validation benchmarks for Satya, Pydantic, and msgspec.")
+    parser.add_argument("--no-plot", action="store_true", help="Skip matplotlib visualizations (avoids NumPy/Matplotlib dependencies)")
+    parser.add_argument("--items", type=int, default=N_ITEMS, help="Total number of items to validate")
+    parser.add_argument("--batch", type=int, default=BATCH_SIZE, help="Batch size for processing")
+    args = parser.parse_args()
+
+    # Override configuration from CLI
+    N_ITEMS = int(args.items)
+    BATCH_SIZE = int(args.batch)
+
     print(f"Running validation benchmark with {N_ITEMS:,} items...")
     print(f"Batch size: {BATCH_SIZE:,}")
     
@@ -329,5 +340,8 @@ if __name__ == "__main__":
         'msgspec_ips': msgspec_ips
     }
     
-    # Create visualizations
-    create_visualization(results)
+    # Create visualizations unless disabled
+    if not args.no_plot:
+        create_visualization(results)
+    else:
+        print("\nSkipping plots (--no-plot).")

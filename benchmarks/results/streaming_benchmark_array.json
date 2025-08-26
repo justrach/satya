@@ -1,0 +1,23 @@
+{
+  "mode": "array",
+  "items": 500000,
+  "batch": 50000,
+  "fields": 3,
+  "string_constraints": false,
+  "number_constraints": false,
+  "regex": false,
+  "invalid_rate": 0.0,
+  "parser_name": "orjson",
+  "dict_time": 0.4651547920075245,
+  "dict_mem": 7.200286865234375,
+  "dict_ips": 1074910.994342528,
+  "json_loads_time": 0.5832803329976741,
+  "json_loads_mem": 55.44885063171387,
+  "json_loads_ips": 857220.7422635554,
+  "json_time": 2.0589588330185506,
+  "json_mem": 30.958842277526855,
+  "json_ips": 242841.18360296285,
+  "json_stream_time": 1.4399879160046112,
+  "json_stream_mem": 6.844938278198242,
+  "json_stream_ips": 347225.1360187101
+}
