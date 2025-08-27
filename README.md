@@ -254,6 +254,40 @@ Satya provides comprehensive validation that goes beyond basic type checking:
 | Custom error messages | ✅ | Limited | ✅ |
 | Batch processing | ✅ | ❌ | ❌ |
 
+### Migration from legacy bindings
+
+If you previously used the low-level core (`_satya.StreamValidatorCore`) or manually registered schemas with `StreamValidator`, migrate to the new model-first API. See the full guide: [`docs/migration.md`](docs/migration.md).
+
+Quick before/after:
+
+```python
+# Before (legacy manual schema)
+from satya._satya import StreamValidatorCore
+core = StreamValidatorCore()
+core.add_field('id', 'int', True)
+core.add_field('email', 'str', True)
+core.set_field_constraints('email', email=True)
+oks = core.validate_batch([{"id": 1, "email": "a@b.com"}])
+```
+
+```python
+# After (model-first)
+from satya import Model, Field
+
+class User(Model):
+    id: int
+    email: str = Field(email=True)
+
+oks = User.validator().validate_batch([{"id": 1, "email": "a@b.com"}])
+```
+
+JSON bytes helpers (streaming):
+
+```python
+ok = User.model_validate_json_bytes(b'{"id":1, "email":"a@b.com"}', streaming=True)
+oks = User.model_validate_json_array_bytes(b'[{"id":1},{"id":2}]', streaming=True)
+```
+
 ## Current Status:
 Satya is currently in alpha (v0.2.15). The core functionality is stable and performant. We're actively working on:
 - Expanding type support
