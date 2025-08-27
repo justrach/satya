@@ -3,8 +3,10 @@ import argparse
 import gc
 import json
 import os
-import sys
+import gc
 import time
+import math
+import shutil
 from typing import List
 
 # Resolve project root for output paths only (do not modify sys.path)
@@ -166,6 +168,94 @@ def bench_dict_path(mode: str, items: List[dict], batch_size: int, validator):
         # Measure memory for processing a micro-batch
         test_batch = items[:micro_batch_size]
         _ = validator._validator.validate_batch(test_batch)
+
+    mem_mb = measure_memory_usage(mem_task)
+    ips = total / elapsed if elapsed > 0 else float('inf')
+    return elapsed, mem_mb, ips
+
+
+def bench_hybrid_msgspec_iter_validate(mode: str, items: List[dict], chunk_size: int, validator):
+    """Hybrid: fast msgspec JSON decode + satya validate_batch.
+
+    - For ndjson: decode per-line using msgspec and batch-validate.
+    - For array: decode once to a Python list using msgspec, then batch-validate.
+    - For object: decode each object and validate individually.
+    """
+    try:
+        import msgspec
+    except ImportError as e:
+        print(f"Skipping hybrid msgspec path: {e}")
+        return 0.0, 0.0, 0.0
+
+    # Build payloads using standard json to ensure identical bytes as other paths
+    if mode == "object":
+        payloads = [json.dumps(obj).encode("utf-8") for obj in items]
+    elif mode == "array":
+        payload = json.dumps(items).encode("utf-8")
+    elif mode == "ndjson":
+        payload = ("\n".join(json.dumps(obj) for obj in items)).encode("utf-8")
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    start = time.perf_counter()
+    total = 0
+
+    if mode == "object":
+        decoded_batch = []
+        for p in payloads:
+            decoded = msgspec.json.decode(p)  # -> dict
+            decoded_batch.append(decoded)
+            if len(decoded_batch) >= chunk_size:
+                _ = validator._validator.validate_batch(decoded_batch)
+                total += len(decoded_batch)
+                decoded_batch.clear()
+        if decoded_batch:
+            _ = validator._validator.validate_batch(decoded_batch)
+            total += len(decoded_batch)
+
+    elif mode == "ndjson":
+        # Bytes-based NDJSON parsing without decoding to str
+        decoded_batch = []
+        for line in payload.splitlines():  # splits on all common line breaks
+            if not line:
+                continue
+            obj = msgspec.json.decode(line)
+            decoded_batch.append(obj)
+            if len(decoded_batch) >= chunk_size:
+                _ = validator._validator.validate_batch(decoded_batch)
+                total += len(decoded_batch)
+                decoded_batch.clear()
+        if decoded_batch:
+            _ = validator._validator.validate_batch(decoded_batch)
+            total += len(decoded_batch)
+
+    else:  # array
+        decoded_list = msgspec.json.decode(payload)  # list[dict]
+        for i in range(0, len(decoded_list), chunk_size):
+            chunk = decoded_list[i : i + chunk_size]
+            _ = validator._validator.validate_batch(chunk)
+            total += len(chunk)
+
+    elapsed = time.perf_counter() - start
+
+    def mem_task():
+        # Measure memory for a single chunk-sized workload
+        if mode == "object":
+            decoded = [msgspec.json.decode(p) for p in payloads[:chunk_size]]
+            _ = validator._validator.validate_batch(decoded)
+        elif mode == "ndjson":
+            tmp = []
+            for line in payload.splitlines():
+                if not line:
+                    continue
+                tmp.append(msgspec.json.decode(line))
+                if len(tmp) >= chunk_size:
+                    break
+            _ = validator._validator.validate_batch(tmp)
+        else:
+            part = json.dumps(items[:chunk_size]).encode("utf-8")
+            decoded = msgspec.json.decode(part)
+            _ = validator._validator.validate_batch(decoded)
 
     mem_mb = measure_memory_usage(mem_task)
     ips = total / elapsed if elapsed > 0 else float('inf')
@@ -459,6 +549,13 @@ def create_visualization(results, mode: str):
         results['json_stream_mem'],
     ]
     colors = ['#7f8c8d', '#8e44ad', '#2980b9', '#27ae60']
+
+    # Add hybrid if present
+    if results.get('hybrid_ips', 0) > 0:
+        libs.append("hybrid(msgspec+batch)")
+        ips_vals.append(results['hybrid_ips'])
+        mem_vals.append(results['hybrid_mem'])
+        colors.append('#16a085')
     
     # Add comparison libraries if enabled
     if results.get('compare_libs', False):
@@ -520,6 +617,11 @@ if __name__ == "__main__":
     parser.add_argument("--invalid-rate", type=float, default=0.0, help="Fraction of items to make invalid (0.0-1.0)")
     parser.add_argument("--no-plot", action="store_true", help="Skip matplotlib plots")
     parser.add_argument("--compare-libs", action="store_true", help="Include Pydantic and msgspec benchmarks for comparison")
+    parser.add_argument("--no-hybrid", action="store_true", help="Disable hybrid msgspec+validate_batch path (enabled by default)")
+    parser.add_argument("--hybrid-chunk", type=int, default=0, help="Override hybrid chunk size (default=max(archive_batch, batch, 65536))")
+    # New: MAP-Elites archive integration
+    parser.add_argument("--use-archive", action="store_true", help="Load MAP-Elites archive and set validator batch size from best config")
+    parser.add_argument("--archive", type=str, default=os.path.join(PROJECT_ROOT, 'benchmarks', 'map_elites_archive.json'), help="Path to MAP-Elites archive JSON")
     args = parser.parse_args()
 
     # Override globals
@@ -542,6 +644,54 @@ if __name__ == "__main__":
     # Build validator matching the same schema/constraints
     validator = setup_validator(args.fields, args.string_constraints, args.number_constraints, args.regex)
 
+    # Optionally load MAP-Elites archive and set batch size
+    if args.use_archive:
+        archive_path = args.archive
+        try:
+            # Copy snapshot alongside results for provenance
+            snapshot_dir = os.path.join(PROJECT_ROOT, 'benchmarks', 'results')
+            os.makedirs(snapshot_dir, exist_ok=True)
+            snapshot_path = os.path.join(snapshot_dir, 'map_elites_archive_snapshot.json')
+            if os.path.exists(archive_path):
+                shutil.copyfile(archive_path, snapshot_path)
+                print(f"Loaded archive: {archive_path}\nSnapshot saved: {snapshot_path}")
+            else:
+                print(f"Archive not found at {archive_path}; proceeding without it")
+                snapshot_path = None
+
+            # Load from archive (original if present, else snapshot if provided)
+            load_path = archive_path if os.path.exists(archive_path) else snapshot_path
+            if load_path and os.path.exists(load_path):
+                with open(load_path, 'r') as f:
+                    data = json.load(f)
+                archive = data.get('archive', {})
+                # Pick the globally best individual by fitness
+                best = None
+                best_fit = -1.0
+                for _bd, indiv in archive.items():
+                    fit = float(indiv.get('fitness', 0.0))
+                    if fit > best_fit:
+                        best_fit = fit
+                        best = indiv
+                if best:
+                    bs = int(best.get('batch_size', BATCH))
+                    try:
+                        # Mirror usage in other scripts: set on the core validator
+                        validator._validator.set_batch_size(bs)
+                        print(f"Using MAP-Elites batch_size={bs} (fitness={best_fit:,.0f} items/s)")
+                    except Exception as e:
+                        print(f"Failed to set batch size from archive ({e}); continuing with batch={BATCH}")
+                    # Track chosen archive batch size for hybrid chunking
+                    ARCHIVE_BATCH = bs
+                else:
+                    print("Archive contained no individuals; proceeding with defaults")
+            else:
+                print("No archive available to load; proceeding with defaults")
+        except Exception as e:
+            print(f"Error loading MAP-Elites archive: {e}. Proceeding without it.")
+    else:
+        ARCHIVE_BATCH = None
+
     # dict-path baseline
     gc.collect()
     dict_time, dict_mem, dict_ips = bench_dict_path(MODE, items, BATCH, validator)
@@ -561,6 +711,17 @@ if __name__ == "__main__":
     gc.collect()
     json_stream_time, json_stream_mem, json_stream_ips = bench_json_bytes(MODE, items, BATCH, streaming=True, validator=validator)
     print(f"json-stream: time={json_stream_time:.2f}s, ips={int(json_stream_ips):,}, mem={json_stream_mem:.1f}MB")
+
+    # Hybrid (enabled by default; opt-out via --no-hybrid)
+    hybrid_time = hybrid_mem = hybrid_ips = 0
+    if not args.no_hybrid:
+        gc.collect()
+        default_chunk = max(ARCHIVE_BATCH or 0, BATCH, 65_536)
+        chunk_size = args.hybrid_chunk if args.hybrid_chunk > 0 else default_chunk
+        hybrid_time, hybrid_mem, hybrid_ips = bench_hybrid_msgspec_iter_validate(MODE, items, chunk_size, validator)
+        if hybrid_ips > 0:
+            ips_str = f"{int(hybrid_ips):,}" if math.isfinite(hybrid_ips) else "inf"
+            print(f"hybrid(msgspec+batch): time={hybrid_time:.2f}s, ips={ips_str}, mem={hybrid_mem:.1f}MB (chunk={chunk_size})")
 
     # Optional library comparisons
     pydantic_time = pydantic_mem = pydantic_ips = 0
@@ -604,6 +765,9 @@ if __name__ == "__main__":
         "json_stream_time": json_stream_time,
         "json_stream_mem": json_stream_mem,
         "json_stream_ips": json_stream_ips,
+        "hybrid_time": hybrid_time,
+        "hybrid_mem": hybrid_mem,
+        "hybrid_ips": hybrid_ips,
         "compare_libs": args.compare_libs,
         "pydantic_time": pydantic_time,
         "pydantic_mem": pydantic_mem,

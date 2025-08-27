@@ -1,0 +1,48 @@
+{
+  "generation": 582,
+  "best_fitness": 71895016.34012912,
+  "archive": {
+    "(0, 0, 0)": {
+      "batch_size": 16304,
+      "micro_batch_size": 1024,
+      "streaming_threshold": 14273,
+      "fitness": 68234189.71997635
+    },
+    "(0, 5, 0)": {
+      "batch_size": 16304,
+      "micro_batch_size": 1024,
+      "streaming_threshold": 14273,
+      "fitness": 68234189.71997635
+    },
+    "(0, 9, 0)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(2, 3, 0)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(2, 7, 1)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(4, 5, 1)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(6, 9, 2)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    }
+  }
+}
