@@ -1,0 +1,705 @@
+{
+  "archive_size": 16,
+  "total_evaluations": 33,
+  "summary": {
+    "scales_tested": [
+      1000000
+    ],
+    "profiles_tested": [
+      "3f_0.3c",
+      "3f_0.0c",
+      "3f_0.6c",
+      "3f_1.0c",
+      "8f_0.0c",
+      "8f_0.4c",
+      "8f_0.8c",
+      "15f_0.2c",
+      "15f_0.6c",
+      "20f_0.5c",
+      "25f_0.9c"
+    ],
+    "scale_performance": {
+      "1000000": {
+        "satya_avg": 29772079.756911233,
+        "satya_std": 13212372.363546629,
+        "msgspec_avg": 6043600.332301188,
+        "msgspec_std": 4094804.9870499773,
+        "ratio_avg": 6.707074313511205,
+        "ratio_std": 4.371622566779441,
+        "samples": 33
+      }
+    },
+    "profile_performance": {
+      "3f_0.3c": {
+        "satya_avg": 39511545.88072428,
+        "ratio_avg": 3.5865529051209197,
+        "best_ratio": 3.8141791102037423,
+        "samples": 3
+      },
+      "3f_0.0c": {
+        "satya_avg": 36302053.5378755,
+        "ratio_avg": 3.5548585119136757,
+        "best_ratio": 3.652125385717158,
+        "samples": 3
+      },
+      "3f_0.6c": {
+        "satya_avg": 43272189.894213855,
+        "ratio_avg": 3.831861379760936,
+        "best_ratio": 4.005086252936475,
+        "samples": 3
+      },
+      "3f_1.0c": {
+        "satya_avg": 43959608.191233434,
+        "ratio_avg": 3.8860481167288943,
+        "best_ratio": 4.0260724955689495,
+        "samples": 3
+      },
+      "8f_0.0c": {
+        "satya_avg": 20545586.27478321,
+        "ratio_avg": 9.336125585646819,
+        "best_ratio": 9.588756621957199,
+        "samples": 3
+      },
+      "8f_0.4c": {
+        "satya_avg": 37937459.243604474,
+        "ratio_avg": 8.028972186069483,
+        "best_ratio": 10.460492466560034,
+        "samples": 3
+      },
+      "8f_0.8c": {
+        "satya_avg": 34782101.16925158,
+        "ratio_avg": 5.308462680652948,
+        "best_ratio": 5.403957010109215,
+        "samples": 3
+      },
+      "15f_0.2c": {
+        "satya_avg": 17089341.550284833,
+        "ratio_avg": 18.318516659622748,
+        "best_ratio": 22.001573451110485,
+        "samples": 3
+      },
+      "15f_0.6c": {
+        "satya_avg": 29122901.137993585,
+        "ratio_avg": 7.573241411762965,
+        "best_ratio": 8.73393092490706,
+        "samples": 3
+      },
+      "20f_0.5c": {
+        "satya_avg": 20968527.932808705,
+        "ratio_avg": 6.867859867718124,
+        "best_ratio": 8.0796057490936,
+        "samples": 3
+      },
+      "25f_0.9c": {
+        "satya_avg": 4001562.5132501475,
+        "ratio_avg": 3.485318143625738,
+        "best_ratio": 4.599143257929187,
+        "samples": 3
+      }
+    },
+    "overall_stats": {
+      "total_evaluations": 33,
+      "avg_ratio": 6.707074313511205,
+      "best_ratio": 22.001573451110485,
+      "avg_satya_speed": 29772079.756911233,
+      "max_satya_speed": 46788277.2718172,
+      "competitive_profiles": 33
+    }
+  },
+  "detailed_results": [
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 12,
+        "constraint_complexity": 0.3,
+        "object_size_kb": 0.12
+      },
+      "individual": {
+        "batch_size": 52227,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 36063,
+        "fitness": 66192289.54130359
+      },
+      "satya_ips": 35475459.8135216,
+      "msgspec_ips": 10634828.43035235,
+      "test_size": 1000000,
+      "ratio": 3.3357811125822026
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 8,
+        "constraint_complexity": 0.0,
+        "object_size_kb": 0.08
+      },
+      "individual": {
+        "batch_size": 16304,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 14273,
+        "fitness": 68234189.71997635
+      },
+      "satya_ips": 36172689.244907595,
+      "msgspec_ips": 10229590.3718872,
+      "test_size": 1000000,
+      "ratio": 3.536083844013619
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 8,
+        "constraint_complexity": 0.0,
+        "object_size_kb": 0.08
+      },
+      "individual": {
+        "batch_size": 16304,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 14273,
+        "fitness": 68234189.71997635
+      },
+      "satya_ips": 36647207.12312965,
+      "msgspec_ips": 10541814.037194729,
+      "test_size": 1000000,
+      "ratio": 3.476366306010251
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 8,
+        "constraint_complexity": 0.0,
+        "object_size_kb": 0.08
+      },
+      "individual": {
+        "batch_size": 16304,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 14273,
+        "fitness": 68234189.71997635
+      },
+      "satya_ips": 36086264.24558926,
+      "msgspec_ips": 9880894.119001638,
+      "test_size": 1000000,
+      "ratio": 3.652125385717158
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 12,
+        "constraint_complexity": 0.3,
+        "object_size_kb": 0.12
+      },
+      "individual": {
+        "batch_size": 52227,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 36063,
+        "fitness": 66192289.54130359
+      },
+      "satya_ips": 42743642.618469015,
+      "msgspec_ips": 11206511.646010712,
+      "test_size": 1000000,
+      "ratio": 3.8141791102037423
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 12,
+        "constraint_complexity": 0.3,
+        "object_size_kb": 0.12
+      },
+      "individual": {
+        "batch_size": 52227,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 36063,
+        "fitness": 66192289.54130359
+      },
+      "satya_ips": 40315535.21018222,
+      "msgspec_ips": 11168671.093469255,
+      "test_size": 1000000,
+      "ratio": 3.609698492576815
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 16,
+        "constraint_complexity": 0.6,
+        "object_size_kb": 0.16
+      },
+      "individual": {
+        "batch_size": 52227,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 36063,
+        "fitness": 66192289.54130359
+      },
+      "satya_ips": 42846737.31557201,
+      "msgspec_ips": 11247529.019358128,
+      "test_size": 1000000,
+      "ratio": 3.809435587303528
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 16,
+        "constraint_complexity": 0.6,
+        "object_size_kb": 0.16
+      },
+      "individual": {
+        "batch_size": 52227,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 36063,
+        "fitness": 66192289.54130359
+      },
+      "satya_ips": 41539379.55792832,
+      "msgspec_ips": 11284617.369483232,
+      "test_size": 1000000,
+      "ratio": 3.681062299042805
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 16,
+        "constraint_complexity": 0.6,
+        "object_size_kb": 0.16
+      },
+      "individual": {
+        "batch_size": 52227,
+        "micro_batch_size": 1024,
+        "streaming_threshold": 36063,
+        "fitness": 66192289.54130359
+      },
+      "satya_ips": 45430452.80914125,
+      "msgspec_ips": 11343189.619407637,
+      "test_size": 1000000,
+      "ratio": 4.005086252936475
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 20,
+        "constraint_complexity": 1.0,
+        "object_size_kb": 0.2
+      },
+      "individual": {
+        "batch_size": 34250,
+        "micro_batch_size": 256,
+        "streaming_threshold": 27786,
+        "fitness": 71895016.34012912
+      },
+      "satya_ips": 43741263.861044995,
+      "msgspec_ips": 11377001.109456114,
+      "test_size": 1000000,
+      "ratio": 3.844709466072653
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 20,
+        "constraint_complexity": 1.0,
+        "object_size_kb": 0.2
+      },
+      "individual": {
+        "batch_size": 34250,
+        "micro_batch_size": 256,
+        "streaming_threshold": 27786,
+        "fitness": 71895016.34012912
+      },
+      "satya_ips": 42882718.67044468,
+      "msgspec_ips": 11322581.329989424,
+      "test_size": 1000000,
+      "ratio": 3.787362388545081
+    },
+    {
+      "profile": {
+        "field_count": 3,
+        "avg_string_length": 20,
+        "constraint_complexity": 1.0,
+        "object_size_kb": 0.2
+      },
+      "individual": {
+        "batch_size": 34250,
+        "micro_batch_size": 256,
+        "streaming_threshold": 27786,
+        "fitness": 71895016.34012912
+      },
+      "satya_ips": 45254842.04221063,
+      "msgspec_ips": 11240443.904578868,
+      "test_size": 1000000,
+      "ratio": 4.0260724955689495
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 10,
+        "constraint_complexity": 0.0,
+        "object_size_kb": 0.25
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 19680358.30951762,
+      "msgspec_ips": 2208773.857139572,
+      "test_size": 1000000,
+      "ratio": 8.910082961143097
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 10,
+        "constraint_complexity": 0.0,
+        "object_size_kb": 0.25
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 20816780.954148296,
+      "msgspec_ips": 2170957.2757827803,
+      "test_size": 1000000,
+      "ratio": 9.588756621957199
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 15,
+        "constraint_complexity": 0.4,
+        "object_size_kb": 0.35
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 22477529.484243937,
+      "msgspec_ips": 2148802.224761388,
+      "test_size": 1000000,
+      "ratio": 10.460492466560034
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 10,
+        "constraint_complexity": 0.0,
+        "object_size_kb": 0.25
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 21139619.560683712,
+      "msgspec_ips": 2222991.421584302,
+      "test_size": 1000000,
+      "ratio": 9.509537173840164
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 15,
+        "constraint_complexity": 0.4,
+        "object_size_kb": 0.35
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 46788277.2718172,
+      "msgspec_ips": 6701303.065431062,
+      "test_size": 1000000,
+      "ratio": 6.981967061477399
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 15,
+        "constraint_complexity": 0.4,
+        "object_size_kb": 0.35
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 44546570.974752285,
+      "msgspec_ips": 6704320.72515122,
+      "test_size": 1000000,
+      "ratio": 6.644457030171019
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 20,
+        "constraint_complexity": 0.8,
+        "object_size_kb": 0.45
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 35412802.57468454,
+      "msgspec_ips": 6750113.0949198445,
+      "test_size": 1000000,
+      "ratio": 5.246253222236575
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 20,
+        "constraint_complexity": 0.8,
+        "object_size_kb": 0.45
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 35571206.880608745,
+      "msgspec_ips": 6582437.0575238615,
+      "test_size": 1000000,
+      "ratio": 5.403957010109215
+    },
+    {
+      "profile": {
+        "field_count": 8,
+        "avg_string_length": 20,
+        "constraint_complexity": 0.8,
+        "object_size_kb": 0.45
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 33362294.052461464,
+      "msgspec_ips": 6324392.325063383,
+      "test_size": 1000000,
+      "ratio": 5.275177809613053
+    },
+    {
+      "profile": {
+        "field_count": 15,
+        "avg_string_length": 15,
+        "constraint_complexity": 0.2,
+        "object_size_kb": 0.6
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 20043795.705087755,
+      "msgspec_ips": 911016.4666007597,
+      "test_size": 1000000,
+      "ratio": 22.001573451110485
+    },
+    {
+      "profile": {
+        "field_count": 15,
+        "avg_string_length": 15,
+        "constraint_complexity": 0.2,
+        "object_size_kb": 0.6
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 17151052.996667128,
+      "msgspec_ips": 924394.0782638884,
+      "test_size": 1000000,
+      "ratio": 18.55383261311956
+    },
+    {
+      "profile": {
+        "field_count": 15,
+        "avg_string_length": 15,
+        "constraint_complexity": 0.2,
+        "object_size_kb": 0.6
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 14073175.949099611,
+      "msgspec_ips": 977294.1182062617,
+      "test_size": 1000000,
+      "ratio": 14.400143914638207
+    },
+    {
+      "profile": {
+        "field_count": 15,
+        "avg_string_length": 25,
+        "constraint_complexity": 0.6,
+        "object_size_kb": 0.9
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 15491066.651323121,
+      "msgspec_ips": 2685618.481715725,
+      "test_size": 1000000,
+      "ratio": 5.768156108840357
+    },
+    {
+      "profile": {
+        "field_count": 15,
+        "avg_string_length": 25,
+        "constraint_complexity": 0.6,
+        "object_size_kb": 0.9
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 35027240.154026754,
+      "msgspec_ips": 4262446.649196958,
+      "test_size": 1000000,
+      "ratio": 8.21763720154148
+    },
+    {
+      "profile": {
+        "field_count": 15,
+        "avg_string_length": 25,
+        "constraint_complexity": 0.6,
+        "object_size_kb": 0.9
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 36850396.60863089,
+      "msgspec_ips": 4219222.355370645,
+      "test_size": 1000000,
+      "ratio": 8.73393092490706
+    },
+    {
+      "profile": {
+        "field_count": 20,
+        "avg_string_length": 20,
+        "constraint_complexity": 0.5,
+        "object_size_kb": 1.0
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 28818271.065225378,
+      "msgspec_ips": 3566791.7420919104,
+      "test_size": 1000000,
+      "ratio": 8.0796057490936
+    },
+    {
+      "profile": {
+        "field_count": 20,
+        "avg_string_length": 20,
+        "constraint_complexity": 0.5,
+        "object_size_kb": 1.0
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 25796326.785310853,
+      "msgspec_ips": 3401268.952311386,
+      "test_size": 1000000,
+      "ratio": 7.584324305721414
+    },
+    {
+      "profile": {
+        "field_count": 20,
+        "avg_string_length": 20,
+        "constraint_complexity": 0.5,
+        "object_size_kb": 1.0
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 8290985.94788989,
+      "msgspec_ips": 1678456.3088442588,
+      "test_size": 1000000,
+      "ratio": 4.939649548339358
+    },
+    {
+      "profile": {
+        "field_count": 25,
+        "avg_string_length": 30,
+        "constraint_complexity": 0.9,
+        "object_size_kb": 1.5
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 2718213.9702347405,
+      "msgspec_ips": 683770.7161372413,
+      "test_size": 1000000,
+      "ratio": 3.975329604038148
+    },
+    {
+      "profile": {
+        "field_count": 25,
+        "avg_string_length": 30,
+        "constraint_complexity": 0.9,
+        "object_size_kb": 1.5
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 2603267.8406941043,
+      "msgspec_ips": 1383626.543948781,
+      "test_size": 1000000,
+      "ratio": 1.8814815689098778
+    },
+    {
+      "profile": {
+        "field_count": 25,
+        "avg_string_length": 30,
+        "constraint_complexity": 0.9,
+        "object_size_kb": 1.5
+      },
+      "individual": {
+        "batch_size": 59256,
+        "micro_batch_size": 512,
+        "streaming_threshold": 20418,
+        "fitness": 67415745.21237633
+      },
+      "satya_ips": 6683205.728821596,
+      "msgspec_ips": 1453141.4557046827,
+      "test_size": 1000000,
+      "ratio": 4.599143257929187
+    }
+  ]
+}

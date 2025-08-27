@@ -10,7 +10,21 @@ use serde::Deserializer; // bring trait methods like deserialize_seq into scope
 struct StreamValidatorCore {
     schema: HashMap<String, FieldValidator>,
     batch_size: usize,
+    adaptive_config: Option<AdaptiveConfig>,
     custom_types: HashMap<String, HashMap<String, FieldValidator>>,
+}
+
+#[derive(Clone)]
+struct AdaptiveConfig {
+    // MAP-Elites learned configurations for different data profiles
+    config_map: std::collections::HashMap<(usize, usize, usize), BatchConfig>,
+}
+
+#[derive(Clone)]
+struct BatchConfig {
+    batch_size: usize,
+    micro_batch_size: usize,
+    streaming_threshold: usize,
 }
 
 // ----- Streaming validation implementation -----
@@ -230,6 +244,7 @@ impl StreamValidatorCore {
         StreamValidatorCore {
             schema: HashMap::new(),
             batch_size: 1000,
+            adaptive_config: None,
             custom_types: HashMap::new(),
         }
     }
