@@ -20,6 +20,8 @@ Satya (सत्य) is the Sanskrit word for **truth** and **reality**, embodyi
 
 Satya is a blazingly fast data validation library for Python, powered by Rust. It provides comprehensive validation capabilities while maintaining exceptional performance through innovative batch processing techniques.
 
+> ⚠️ Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+
 ## Key Features:
 - **High-performance validation** with Rust-powered core
 - **Batch processing** with configurable batch sizes for optimal throughput
