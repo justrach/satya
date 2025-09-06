@@ -1,10 +1,14 @@
 # Configuration flag for string representation
 from typing import Any, Dict, Literal, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern
 from dataclasses import dataclass
-from . import _satya
 from itertools import islice
-from ._satya import StreamValidatorCore
-from .validator import StreamValidator
+from .json_loader import load_json  # Import the new JSON loader
+import json
+try:
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("satya")
+except Exception:
+    __version__ = "0.0.0"
 import re
 from uuid import UUID
 from enum import Enum
@@ -20,12 +24,8 @@ class ValidationError:
     path: List[str]
 
     def __str__(self) -> str:
-        if self.__class__.PRETTY_REPR:
-            fields = []
-            for name, value in self._data.items():
-                fields.append(f"{name}={repr(value)}")
-            return f"{self.__class__.__name__} {' '.join(fields)}"
-        return super().__str__()
+        loc = ".".join(self.path) if self.path else self.field
+        return f"{loc}: {self.message}"
 
 class ValidationResult(Generic[T]):
     """Represents the result of validation"""
@@ -52,194 +52,12 @@ class ValidationResult(Generic[T]):
             return f"Valid: {self._value}"
         return f"Invalid: {'; '.join(str(err) for err in self._errors)}"
 
-class StreamValidator:
-    """Validator for streaming data validation"""
-    def __init__(self):
-        self._validator = StreamValidatorCore()
-        self._type_registry = {}
-        self._batch_size = 1000  # Default batch size
-    
-    def set_batch_size(self, size: int) -> None:
-        """Set the batch size for stream processing"""
-        if size < 1:
-            raise ValueError("Batch size must be positive")
-        self._batch_size = size
-        self._validator.set_batch_size(size)
-    
-    def get_batch_size(self) -> int:
-        """Get current batch size"""
-        return self._batch_size
-    
-    def define_type(self, type_name: str, fields: Dict[str, Union[Type, str]], 
-                   doc: Optional[str] = None) -> None:
-        """
-        Define a new custom type with fields
-        
-        Args:
-            type_name: Name of the custom type
-            fields: Dictionary mapping field names to their types
-            doc: Optional documentation string
-        """
-        self._validator.define_custom_type(type_name)
-        self._type_registry[type_name] = {
-            'fields': fields,
-            'doc': doc
-        }
-        
-        for field_name, field_type in fields.items():
-            self._validator.add_field_to_custom_type(
-                type_name, 
-                field_name,
-                self._get_type_string(field_type),
-                True  # Required by default
-            )
-    
-    def add_field(self, name: str, field_type: Union[Type, str], 
-                 required: bool = True, description: Optional[str] = None) -> None:
-        """
-        Add a field to the root schema
-        
-        Args:
-            name: Field name
-            field_type: Type of the field (can be primitive, List, Dict, or custom type)
-            required: Whether the field is required (default: True)
-            description: Optional field description
-        """
-        type_str = self._get_type_string(field_type)
-        self._validator.add_field(name, type_str, required)
-    
-    def validate(self, data: Dict) -> ValidationResult[Dict]:
-        """
-        Validate a single dictionary against the schema
-        
-        Returns:
-            ValidationResult containing either the valid data or validation errors
-        """
-        try:
-            results = list(self.validate_stream([data]))
-            if results:
-                return ValidationResult(value=results[0])
-            return ValidationResult(errors=[
-                ValidationError(field="root", message="Validation failed", path=[])
-            ])
-        except Exception as e:
-            return ValidationResult(errors=[
-                ValidationError(field="root", message=str(e), path=[])
-            ])
-    
-    def validate_stream(self, items: Iterator[Dict], 
-                       collect_errors: bool = False) -> Iterator[Union[Dict, ValidationResult[Dict]]]:
-        """Validate a stream of items"""
-        batch = []
-        for item in items:
-            batch.append(item)
-            if len(batch) >= self._batch_size:
-                yield from self._process_batch(batch, collect_errors)
-                batch = []
-        
-        if batch:  # Process remaining items
-            yield from self._process_batch(batch, collect_errors)
-    
-    def _process_batch(self, batch: List[Dict], 
-                      collect_errors: bool) -> Iterator[Union[Dict, ValidationResult[Dict]]]:
-        """Process a batch of items"""
-        try:
-            results = self._validator.validate_batch(batch)
-            for item, is_valid in zip(batch, results):
-                if is_valid:
-                    if collect_errors:
-                        yield ValidationResult(value=item)
-                    else:
-                        yield item
-                elif collect_errors:
-                    yield ValidationResult(errors=[
-                        ValidationError(field="root", message="Validation failed", path=[])
-                    ])
-        except Exception as e:
-            if collect_errors:
-                yield ValidationResult(errors=[
-                    ValidationError(field="root", message=str(e), path=[])
-                ])
-    
-    def _get_type_string(self, field_type: Union[Type, str]) -> str:
-        """Convert Python type to type string"""
-        if isinstance(field_type, str):
-            return field_type
-        
-        # Handle Literal types
-        if get_origin(field_type) == Literal:
-            return "str"  # Literals are treated as strings with enum validation
-        
-        # Get type name dynamically
-        type_name = getattr(field_type, '__name__', str(field_type))
-        
-        # Handle basic types
-        type_map = {
-            str: 'str',  # Use type objects as keys
-            int: 'int',
-            float: 'float',
-            bool: 'bool',
-            dict: 'dict',
-            list: 'list',
-            datetime: 'date-time',  # Now datetime will match
-            UUID: 'uuid',
-            Any: 'any',
-            Decimal: 'decimal',  # Add Decimal support
-        }
-        
-        # Get the base type for Optional/Union types
-        if get_origin(field_type) == Union:
-            args = get_args(field_type)
-            # Remove None type for Optional fields
-            types = [t for t in args if t != type(None)]
-            if len(types) == 1:
-                return self._get_type_string(types[0])
-            elif len(types) > 1:
-                # For complex Union types with multiple non-None types, treat as 'any'
-                return 'any'
-        
-        # Handle List and Dict
-        if get_origin(field_type) == list:
-            inner_type = get_args(field_type)[0]
-            return f"List[{self._get_type_string(inner_type)}]"
-        elif get_origin(field_type) == dict:
-            key_type, value_type = get_args(field_type)
-            return f"Dict[{self._get_type_string(value_type)}]"
-        
-        # Handle Enum types
-        if isinstance(field_type, type) and issubclass(field_type, Enum):
-            return "str"  # Enums are treated as strings with enum validation
-        
-        # Handle Model types
-        if isinstance(field_type, type) and hasattr(field_type, '__fields__'):
-            return field_type.__name__
-        
-        # Try to get type from mapping
-        if field_type in type_map:
-            return type_map[field_type]
-        
-        # Fallback to type name mapping
-        name_map = {
-            'str': 'str',
-            'int': 'int',
-            'float': 'float',
-            'bool': 'bool',
-            'dict': 'dict',
-            'list': 'list',
-            'datetime': 'date-time',
-            'date': 'date-time',
-            'UUID': 'uuid',
-            'Any': 'any',
-            'Decimal': 'decimal',  # Add Decimal support
-        }
-        if type_name in name_map:
-            return name_map[type_name]
-        
-        raise ValueError(f"Unsupported type: {field_type}")
-    
-    def get_type_info(self, type_name: str) -> Optional[Dict]:
-        """Get information about a registered custom type"""
-        return self._type_registry.get(type_name)
+class ModelValidationError(Exception):
+    """Exception raised when model validation fails (Pydantic-like)."""
+    def __init__(self, errors: List[ValidationError]):
+        self.errors = errors
+        super().__init__("; ".join(f"{e.field}: {e.message}" for e in errors))
+
 
 @dataclass
 class FieldConfig:
@@ -356,6 +174,11 @@ class ModelMetaclass(type):
             fields[field_name] = field_def
             
         namespace['__fields__'] = fields
+        # Default, Pydantic-like config
+        namespace.setdefault('model_config', {
+            'extra': 'ignore',  # 'ignore' | 'allow' | 'forbid'
+            'validate_assignment': False,
+        })
         return super().__new__(mcs, name, bases, namespace)
 
 class Model(metaclass=ModelMetaclass):
@@ -363,14 +186,42 @@ class Model(metaclass=ModelMetaclass):
     
     __fields__: ClassVar[Dict[str, Field]]
     PRETTY_REPR = False  # Default to False, let users opt-in
+    _validator_instance: ClassVar[Optional['StreamValidator']] = None
     
     def __init__(self, **data):
-        self._data = data
+        """Validate on construction (Pydantic-like). Use model_construct to skip validation."""
         self._errors = []
-        # Set attributes from data
+        # Validate input using cached validator
+        validator = self.__class__.validator()
+        result = validator.validate(data)
+        if not result.is_valid:
+            raise ModelValidationError(result.errors)
+
+        normalized = result.value or {}
+
+        # Handle extras per model_config
+        config = getattr(self.__class__, 'model_config', {}) or {}
+        extra_mode = config.get('extra', 'ignore')
+        field_names = set(self.__fields__.keys())
+        input_keys = set(data.keys())
+        extra_keys = [k for k in input_keys if k not in field_names]
+        if extra_keys and extra_mode == 'forbid':
+            raise ModelValidationError([
+                ValidationError(field=k, message='extra fields not permitted', path=[k]) for k in extra_keys
+            ])
+
+        self._data = {}
+        # Set known fields from normalized data (falls back to default)
         for name, field in self.__fields__.items():
-            value = data.get(name, field.default)
+            value = normalized.get(name, field.default)
+            self._data[name] = value
             setattr(self, name, value)
+
+        # Optionally keep extras
+        if extra_mode == 'allow':
+            for k in extra_keys:
+                self._data[k] = data[k]
+                setattr(self, k, data[k])
         
     def __str__(self):
         """String representation of the model"""
@@ -402,7 +253,7 @@ class Model(metaclass=ModelMetaclass):
                 name: {
                     'type': _type_to_json_schema(field.type),
                     'description': field.description,
-                    'examples': field.examples
+                    'example': field.example
                 }
                 for name, field in cls.__fields__.items()
             },
@@ -415,13 +266,115 @@ class Model(metaclass=ModelMetaclass):
     @classmethod
     def validator(cls) -> 'StreamValidator':
         """Create a validator for this model"""
-        validator = StreamValidator()
-        _register_model(validator, cls)
-        return validator
+        if cls._validator_instance is None:
+            # Import lazily to avoid initializing the Rust core on module import
+            from .validator import StreamValidator
+            validator = StreamValidator()
+            _register_model(validator, cls)
+            cls._validator_instance = validator
+        return cls._validator_instance
     
     def dict(self) -> Dict:
         """Convert to dictionary"""
         return self._data.copy()
+
+    # ---- Pydantic-like API ----
+    @classmethod
+    def model_validate(cls, data: Dict[str, Any]) -> 'Model':
+        """Validate data and return a model instance (raises on error)."""
+        return cls(**data)
+
+    @classmethod
+    def model_validate_json(cls, json_str: str) -> 'Model':
+        """Validate JSON string and return a model instance (raises on error)."""
+        data = load_json(json_str)
+        if not isinstance(data, dict):
+            raise ModelValidationError([
+                ValidationError(field='root', message='JSON must represent an object', path=['root'])
+            ])
+        return cls(**data)
+
+    # --- New: model-level JSON-bytes APIs (streaming or not) ---
+    @classmethod
+    def model_validate_json_bytes(cls, data: Union[str, bytes], *, streaming: bool = True) -> 'Model':
+        """Validate a single JSON object provided as bytes/str. Returns model instance or raises."""
+        validator = cls.validator()
+        ok = validator.validate_json(data, mode="object", streaming=streaming)
+        if not ok:
+            raise ModelValidationError([
+                ValidationError(field='root', message='JSON does not conform to schema', path=['root'])
+            ])
+        py = load_json(data)  # parse after validation to construct instance
+        if not isinstance(py, dict):
+            raise ModelValidationError([
+                ValidationError(field='root', message='JSON must represent an object', path=['root'])
+            ])
+        return cls(**py)
+
+    @classmethod
+    def model_validate_json_array_bytes(cls, data: Union[str, bytes], *, streaming: bool = True) -> List[bool]:
+        """Validate a top-level JSON array of objects from bytes/str. Returns per-item booleans."""
+        validator = cls.validator()
+        return validator.validate_json(data, mode="array", streaming=streaming)
+
+    @classmethod
+    def model_validate_ndjson_bytes(cls, data: Union[str, bytes], *, streaming: bool = True) -> List[bool]:
+        """Validate NDJSON (one JSON object per line). Returns per-line booleans."""
+        validator = cls.validator()
+        return validator.validate_json(data, mode="ndjson", streaming=streaming)
+
+    def model_dump(self, *, exclude_none: bool = False) -> Dict[str, Any]:
+        """Dump model data as a dict."""
+        d = self._data.copy()
+        if exclude_none:
+            d = {k: v for k, v in d.items() if v is not None}
+        return d
+
+    def model_dump_json(self, *, exclude_none: bool = False) -> str:
+        """Dump model data as a JSON string."""
+        return json.dumps(self.model_dump(exclude_none=exclude_none))
+
+    @classmethod
+    def model_json_schema(cls) -> dict:
+        """Return JSON Schema for this model (alias)."""
+        return cls.json_schema()
+
+    @classmethod
+    def parse_obj(cls, obj: Dict[str, Any]) -> 'Model':
+        """Compatibility alias for Pydantic v1-style API."""
+        return cls.model_validate(obj)
+
+    @classmethod
+    def parse_raw(cls, data: str) -> 'Model':
+        """Compatibility alias for Pydantic v1-style API."""
+        return cls.model_validate_json(data)
+
+    @classmethod
+    def model_construct(cls, **data: Any) -> 'Model':
+        """Construct a model instance without validation (Pydantic-like)."""
+        self = object.__new__(cls)
+        self._errors = []
+        config = getattr(cls, 'model_config', {}) or {}
+        extra_mode = config.get('extra', 'ignore')
+        self._data = {}
+        # Set known fields
+        for name, field in cls.__fields__.items():
+            value = data.get(name, field.default)
+            self._data[name] = value
+            setattr(self, name, value)
+        # Handle extras
+        if extra_mode == 'allow':
+            for k, v in data.items():
+                if k not in cls.__fields__:
+                    self._data[k] = v
+                    setattr(self, k, v)
+        elif extra_mode == 'forbid':
+            extras = [k for k in data.keys() if k not in cls.__fields__]
+            if extras:
+                raise ModelValidationError([
+                    ValidationError(field=k, message='extra fields not permitted', path=[k]) for k in extras
+                ])
+        return self
 
     @classmethod
     def json_schema(cls) -> dict:
@@ -596,11 +549,53 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
         elif isinstance(field_type, type) and issubclass(field_type, Model):
             _register_model(validator, field_type, path + [model.__name__])
     
-    # Register this model
+    # Register this model as a custom type (for nested usage)
     validator.define_type(
         model.__name__,
         {name: field.type for name, field in model.__fields__.items()},
         doc=model.__doc__
     )
 
-__all__ = ['StreamValidator'] 
+    # If this is the top-level model (no parent path), also populate the root schema
+    if not path:
+        for name, field in model.__fields__.items():
+            validator.add_field(name, field.type, required=field.required)
+            # Propagate constraints to the core
+            enum_values = None
+            # Only apply enum for string fields for now (core enum compares strings)
+            type_name = getattr(field.type, '__name__', str(field.type))
+            if field.enum and type_name == 'str':
+                enum_values = [str(v) for v in field.enum]
+            # pattern is already a str or None
+            validator.set_constraints(
+                name,
+                min_length=field.min_length,
+                max_length=field.max_length,
+                min_value=field.min_value,
+                max_value=field.max_value,
+                pattern=field.pattern,
+                email=field.email,
+                url=field.url,
+                ge=field.ge,
+                le=field.le,
+                gt=field.gt,
+                lt=field.lt,
+                min_items=field.min_items,
+                max_items=field.max_items,
+                unique_items=field.unique_items,
+                enum_values=enum_values,
+            )
+
+BaseModel = Model
+
+def __getattr__(name: str):
+    """Lazy attribute access to avoid importing heavy modules at import time."""
+    if name == 'StreamValidator':
+        from .validator import StreamValidator as _SV
+        return _SV
+    if name == 'StreamValidatorCore':
+        from ._satya import StreamValidatorCore as _SVC
+        return _SVC
+    raise AttributeError(name)
+
+__all__ = ['StreamValidator', 'load_json', 'Model', 'BaseModel', 'Field', 'ValidationResult', 'ValidationError', 'ModelValidationError', '__version__']

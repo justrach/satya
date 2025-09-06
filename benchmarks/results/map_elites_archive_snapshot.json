@@ -1,0 +1,102 @@
+{
+  "generation": 602,
+  "best_fitness": 71895016.34012912,
+  "archive": {
+    "(0, 0, 0)": {
+      "batch_size": 16304,
+      "micro_batch_size": 1024,
+      "streaming_threshold": 14273,
+      "fitness": 68234189.71997635
+    },
+    "(0, 5, 0)": {
+      "batch_size": 16304,
+      "micro_batch_size": 1024,
+      "streaming_threshold": 14273,
+      "fitness": 68234189.71997635
+    },
+    "(0, 9, 0)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(2, 3, 0)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(2, 7, 1)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(4, 5, 1)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(6, 9, 2)": {
+      "batch_size": 34250,
+      "micro_batch_size": 256,
+      "streaming_threshold": 27786,
+      "fitness": 71895016.34012912
+    },
+    "(0, 3, 0)": {
+      "batch_size": 52227,
+      "micro_batch_size": 1024,
+      "streaming_threshold": 36063,
+      "fitness": 66192289.54130359
+    },
+    "(0, 6, 0)": {
+      "batch_size": 52227,
+      "micro_batch_size": 1024,
+      "streaming_threshold": 36063,
+      "fitness": 66192289.54130359
+    },
+    "(2, 0, 0)": {
+      "batch_size": 59256,
+      "micro_batch_size": 512,
+      "streaming_threshold": 20418,
+      "fitness": 67415745.21237633
+    },
+    "(2, 4, 0)": {
+      "batch_size": 59256,
+      "micro_batch_size": 512,
+      "streaming_threshold": 20418,
+      "fitness": 67415745.21237633
+    },
+    "(2, 8, 0)": {
+      "batch_size": 59256,
+      "micro_batch_size": 512,
+      "streaming_threshold": 20418,
+      "fitness": 67415745.21237633
+    },
+    "(4, 2, 1)": {
+      "batch_size": 59256,
+      "micro_batch_size": 512,
+      "streaming_threshold": 20418,
+      "fitness": 67415745.21237633
+    },
+    "(4, 6, 1)": {
+      "batch_size": 59256,
+      "micro_batch_size": 512,
+      "streaming_threshold": 20418,
+      "fitness": 67415745.21237633
+    },
+    "(6, 5, 2)": {
+      "batch_size": 59256,
+      "micro_batch_size": 512,
+      "streaming_threshold": 20418,
+      "fitness": 67415745.21237633
+    },
+    "(8, 9, 3)": {
+      "batch_size": 59256,
+      "micro_batch_size": 512,
+      "streaming_threshold": 20418,
+      "fitness": 67415745.21237633
+    }
+  }
+}
