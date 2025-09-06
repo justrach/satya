@@ -780,4 +780,4 @@ def __getattr__(name: str):
         return _SVC
     raise AttributeError(name)
 
-__all__ = ['StreamValidator', 'load_json', 'Model', 'BaseModel', 'Field', 'ValidationResult', 'ValidationError', 'ModelValidationError']
+__all__ = ['StreamValidator', 'load_json', 'Model', 'BaseModel', 'Field', 'ValidationResult', 'ValidationError', 'ModelValidationError', '__version__']

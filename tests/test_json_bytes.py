@@ -1,12 +1,13 @@
 import json
 import os
 import random
+import sys
 from typing import List
 
 import pytest
 
-os.environ.setdefault("PYTHONPATH", "src")
-
+# Add src to Python path for proper imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import satya
 
 
