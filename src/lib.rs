@@ -1,8 +1,10 @@
 use pyo3::prelude::*;
-use std::collections::HashMap;
+use pyo3::types::{PyBytes, PyDict, PyList};
+use std::collections::{HashMap, HashSet};
 use regex::Regex;  // Use the regex crate directly
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserializer; // bring trait methods like deserialize_seq into scope
+use serde_json::Value as JsonValue;
 
 #[pyclass(name = "StreamValidatorCore")]
 struct StreamValidatorCore {
