@@ -14,13 +14,36 @@
 
 <p align="center">
 
+<p align="center">
+
 # SATYA - High Performance Data Validation for Python
 
 Satya (सत्य) is the Sanskrit word for **truth** and **reality**, embodying our commitment to data integrity and validation. Just as truth is fundamental and unwavering, Satya ensures your data validation is reliable, fast, and efficient.
 
 Satya is a blazingly fast data validation library for Python, powered by Rust. It provides comprehensive validation capabilities while maintaining exceptional performance through innovative batch processing techniques.
 
-> ⚠️ Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+> ⚠️ **Latest Version: v0.3.6** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+
+## 📋 What's New in v0.3.6
+
+### 🏗️ OpenAI-Compatible Schema Generation
+- **New Method**: `Model.model_json_schema()` generates JSON schemas compatible with OpenAI's structured output API
+- **Schema Fixing**: Automatically flattens nested type objects (e.g., `{"type": {"type": "string"}}` → `{"type": "string"}`)
+- **Strict Validation**: Sets `additionalProperties: false` for strict schema validation
+
+### 🧪 Comprehensive Testing
+- Added complete test suite with 5 test methods covering nested types, optional fields, enums, and lists
+- All 150 tests pass with comprehensive coverage
+
+### 🏛️ Provider-Agnostic Architecture
+- Removed OpenAI-specific code to maintain provider independence
+- Provider-specific adapters will live in the Bhumi project
+- Enhanced CI/CD with broader platform support (both manylinux versions, multiple Windows targets)
+
+### 📚 Enhanced Documentation
+- Updated README with schema generation examples
+- Comprehensive release notes and changelog
+- Improved migration guides
 
 ## Key Features:
 - **High-performance validation** with Rust-powered core
@@ -30,6 +53,7 @@ Satya is a blazingly fast data validation library for Python, powered by Rust. I
 - **Type coercion** with intelligent type conversion
 - **Decimal support** for financial-grade precision
 - **Compatible with standard Python type hints**
+- **OpenAI-compatible schema generation**
 - **Minimal memory overhead**
 
 ## Quick Start (new DX):
@@ -86,7 +110,7 @@ print(user)
 
 ## 🚀 Performance
 
-### Latest Benchmark Results (v0.2.15)
+### Latest Benchmark Results (v0.3.6)
 
 Our comprehensive benchmarks demonstrate Satya's exceptional performance when using batch processing:
 
@@ -320,7 +344,7 @@ oks = User.model_validate_json_array_bytes(b'[{"id":1},{"id":2}]', streaming=Tru
 ```
 
 ## Current Status:
-Satya is currently in alpha (v0.2.15). The core functionality is stable and performant. We're actively working on:
+Satya v0.3.6 is stable and production-ready. The core functionality includes comprehensive validation, schema generation, and high-performance batch processing. We're actively working on:
 - Expanding type support
 - Adding more validation features
 - Improving error messages
