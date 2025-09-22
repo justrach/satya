@@ -8,6 +8,29 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import satya
 from satya import Model, Field, ValidationError, ValidationResult, ModelValidationError
 
+class Address(Model):
+    """Address model used by Person"""
+    street: str = Field(min_length=1)
+    city: str = Field(min_length=1)
+    postal_code: str = Field(pattern=r"^\d{5}$")
+
+class Person(Model):
+    """Comprehensive Person model used across tests"""
+    name: str = Field(min_length=2, max_length=50)
+    age: int = Field(ge=0, le=150)
+    email: str = Field(email=True)
+    website: str = Field(required=False, url=True)
+    address: Address = Field()
+    tags: List[str] = Field(default=[], max_items=10)
+    metadata: Dict[str, str] = Field(default={})
+
+class Product(Model):
+    """Product model with enum category"""
+    name: str = Field(min_length=1)
+    category: str = Field(enum=["electronics", "clothing", "books"])
+    price: float = Field(gt=0.0)
+    in_stock: bool = Field(default=True)
+
 
 class SimplePerson(Model):
     """Test model with basic field types"""
