@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from itertools import islice
 from .json_loader import load_json  # Import the new JSON loader
 import json
+import copy
 try:
     from importlib.metadata import version as _pkg_version
     __version__ = _pkg_version("satya")
@@ -156,7 +157,12 @@ class Field:
 class ModelMetaclass(type):
     """Metaclass for handling model definitions"""
     def __new__(mcs, name, bases, namespace):
+        # Start by inheriting fields from base classes (shallow copy)
         fields = {}
+        for base in bases:
+            base_fields = getattr(base, '__fields__', None)
+            if isinstance(base_fields, dict):
+                fields.update(base_fields)
         annotations = namespace.get('__annotations__', {})
         
         # Get fields from type annotations and Field definitions
@@ -166,10 +172,21 @@ class ModelMetaclass(type):
             
             field_def = namespace.get(field_name, Field())
             if not isinstance(field_def, Field):
+                # If a default value is provided directly on the class, wrap it in Field(default=...)
                 field_def = Field(default=field_def)
                 
             if field_def.type is None:
                 field_def.type = field_type
+            
+            # If the annotation is Optional[T], mark field as not required by default
+            origin = get_origin(field_def.type)
+            args = get_args(field_def.type) if origin is not None else ()
+            if origin is Union and type(None) in args:
+                field_def.required = False
+            
+            # If a default value is present (including default=None), the field is not required
+            if getattr(field_def, 'default', None) is not None or (field_name in namespace and not isinstance(namespace.get(field_name), Field)):
+                field_def.required = False
                 
             fields[field_name] = field_def
             
@@ -211,9 +228,43 @@ class Model(metaclass=ModelMetaclass):
             ])
 
         self._data = {}
-        # Set known fields from normalized data (falls back to default)
+        # Set known fields from normalized data (falls back to default),
+        # instantiate nested models, and avoid sharing mutable defaults
         for name, field in self.__fields__.items():
-            value = normalized.get(name, field.default)
+            # choose value: provided or default
+            if name in normalized:
+                value = normalized[name]
+            else:
+                default_val = getattr(field, 'default', None)
+                # deep-copy mutable defaults to avoid shared state
+                if isinstance(default_val, (list, dict)):
+                    value = copy.deepcopy(default_val)
+                else:
+                    value = default_val
+
+            # Convert nested dicts/lists into Model instances when annotated
+            tp = field.type
+            # Unwrap Optional[T]
+            origin = get_origin(tp)
+            args = get_args(tp) if origin is not None else ()
+            if origin is Union and type(None) in args:
+                non_none = [a for a in args if a is not type(None)]
+                tp_unwrapped = non_none[0] if non_none else tp
+            else:
+                tp_unwrapped = tp
+
+            origin2 = get_origin(tp_unwrapped)
+            args2 = get_args(tp_unwrapped) if origin2 is not None else ()
+            # Direct nested Model
+            if isinstance(tp_unwrapped, type) and issubclass(tp_unwrapped, Model):
+                if isinstance(value, dict):
+                    value = tp_unwrapped(**value)  # Let nested validation raise if invalid
+            # List[Model]
+            elif origin2 is list and args2:
+                inner = args2[0]
+                if isinstance(inner, type) and issubclass(inner, Model) and isinstance(value, list):
+                    value = [inner(**v) if isinstance(v, dict) else v for v in value]
+
             self._data[name] = value
             setattr(self, name, value)
 
@@ -222,6 +273,85 @@ class Model(metaclass=ModelMetaclass):
             for k in extra_keys:
                 self._data[k] = data[k]
                 setattr(self, k, data[k])
+
+        # Additional Python-side constraint enforcement to complement the core:
+        # - floats with gt/lt (core int slots only)
+        # - whitespace-only strings against min_length
+        # - simple URL (http/https) and email checks
+        errors: List[ValidationError] = []
+        for fname, field in self.__fields__.items():
+            val = getattr(self, fname, None)
+            # Skip absent optionals
+            if val is None:
+                continue
+
+            tp = field.type
+            try:
+                # String constraints
+                if isinstance(val, str):
+                    s_trim = val.strip()
+                    if field.min_length is not None and len(s_trim) < field.min_length:
+                        errors.append(ValidationError(field=fname, message=f"String shorter than min_length={field.min_length}", path=[fname]))
+                    if field.max_length is not None and len(val) > field.max_length:
+                        errors.append(ValidationError(field=fname, message=f"String longer than max_length={field.max_length}", path=[fname]))
+                    if field.pattern and not re.match(field.pattern, val):
+                        errors.append(ValidationError(field=fname, message=f"String does not match pattern: {field.pattern}", path=[fname]))
+                    if field.email:
+                        email_pat = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+                        if not re.match(email_pat, val):
+                            errors.append(ValidationError(field=fname, message="Invalid email format", path=[fname]))
+                    if field.url:
+                        # Require protocol and a hostname (simple but stricter)
+                        if not re.match(r"^https?://[A-Za-z0-9.-]+(?::\d+)?(?:/[^\s]*)?$", val):
+                            errors.append(ValidationError(field=fname, message="Invalid URL format", path=[fname]))
+
+                # Integer constraints
+                if isinstance(val, int) and not isinstance(val, bool):
+                    if field.ge is not None and val < field.ge:
+                        errors.append(ValidationError(field=fname, message=f"Value must be >= {field.ge}", path=[fname]))
+                    if field.le is not None and val > field.le:
+                        errors.append(ValidationError(field=fname, message=f"Value must be <= {field.le}", path=[fname]))
+                    if field.gt is not None and val <= field.gt:
+                        errors.append(ValidationError(field=fname, message=f"Value must be > {field.gt}", path=[fname]))
+                    if field.lt is not None and val >= field.lt:
+                        errors.append(ValidationError(field=fname, message=f"Value must be < {field.lt}", path=[fname]))
+
+                # Float constraints
+                if isinstance(val, float):
+                    if field.min_value is not None and val < field.min_value:
+                        errors.append(ValidationError(field=fname, message=f"Value must be >= {field.min_value}", path=[fname]))
+                    if field.max_value is not None and val > field.max_value:
+                        errors.append(ValidationError(field=fname, message=f"Value must be <= {field.max_value}", path=[fname]))
+                    for op_name, thr, cmp in (
+                        ("ge", field.ge, lambda a, b: a < float(b) if b is not None else False),
+                        ("le", field.le, lambda a, b: a > float(b) if b is not None else False),
+                        ("gt", field.gt, lambda a, b: a <= float(b) if b is not None else False),
+                        ("lt", field.lt, lambda a, b: a >= float(b) if b is not None else False),
+                    ):
+                        if thr is not None and cmp(val, thr):
+                            op_txt = ">=" if op_name == "ge" else "<=" if op_name == "le" else ">" if op_name == "gt" else "<"
+                            errors.append(ValidationError(field=fname, message=f"Value must be {op_txt} {thr}", path=[fname]))
+
+                # List constraints
+                if isinstance(val, list):
+                    if field.min_items is not None and len(val) < field.min_items:
+                        errors.append(ValidationError(field=fname, message=f"Array must have at least {field.min_items} items", path=[fname]))
+                    if field.max_items is not None and len(val) > field.max_items:
+                        errors.append(ValidationError(field=fname, message=f"Array must have at most {field.max_items} items", path=[fname]))
+                    if field.unique_items:
+                        if len(set(val)) != len(val):
+                            errors.append(ValidationError(field=fname, message="Array items must be unique", path=[fname]))
+
+                # Enum constraints propagated via Field(enum=...)
+                if getattr(field, 'enum', None) and isinstance(val, str):
+                    if val not in field.enum:
+                        errors.append(ValidationError(field=fname, message=f"Value not in enum: {field.enum}", path=[fname]))
+            except Exception:
+                # Best-effort enforcement only
+                pass
+
+        if errors:
+            raise ModelValidationError(errors)
         
     def __str__(self):
         """String representation of the model"""
@@ -246,22 +376,7 @@ class Model(metaclass=ModelMetaclass):
     @classmethod
     def schema(cls) -> Dict:
         """Get JSON Schema representation"""
-        return {
-            'title': cls.__name__,
-            'type': 'object',
-            'properties': {
-                name: {
-                    'type': _type_to_json_schema(field.type),
-                    'description': field.description,
-                    'example': field.example
-                }
-                for name, field in cls.__fields__.items()
-            },
-            'required': [
-                name for name, field in cls.__fields__.items()
-                if field.required
-            ]
-        }
+        return cls.json_schema()
         
     @classmethod
     def validator(cls) -> 'StreamValidator':
@@ -325,7 +440,13 @@ class Model(metaclass=ModelMetaclass):
 
     def model_dump(self, *, exclude_none: bool = False) -> Dict[str, Any]:
         """Dump model data as a dict."""
-        d = self._data.copy()
+        def _dump_val(v):
+            if isinstance(v, Model):
+                return v.model_dump(exclude_none=exclude_none)
+            if isinstance(v, list):
+                return [_dump_val(x) for x in v]
+            return v
+        d = {k: _dump_val(v) for k, v in self._data.items()}
         if exclude_none:
             d = {k: v for k, v in d.items() if v is not None}
         return d
@@ -357,9 +478,28 @@ class Model(metaclass=ModelMetaclass):
         config = getattr(cls, 'model_config', {}) or {}
         extra_mode = config.get('extra', 'ignore')
         self._data = {}
-        # Set known fields
-        for name, field in cls.__fields__.items():
+        # Set known fields from normalized data (falls back to default)
+        for name, field in self.__fields__.items():
             value = data.get(name, field.default)
+            # Construct nested Model instances where applicable
+            ftype = field.type
+            try:
+                # Handle Optional[T]
+                if get_origin(ftype) is Union and type(None) in get_args(ftype):
+                    inner = [a for a in get_args(ftype) if a is not type(None)][0]
+                else:
+                    inner = ftype
+                # Nested Model
+                if isinstance(inner, type) and issubclass(inner, Model) and isinstance(value, dict):
+                    value = inner(**value)
+                # List[Model]
+                if get_origin(inner) is list:
+                    inner_arg = get_args(inner)[0] if get_args(inner) else Any
+                    if isinstance(inner_arg, type) and issubclass(inner_arg, Model) and isinstance(value, list):
+                        value = [inner_arg(**v) if isinstance(v, dict) else v for v in value]
+            except Exception:
+                # Best-effort construction; leave value as-is on failure
+                pass
             self._data[name] = value
             setattr(self, name, value)
         # Handle extras
@@ -385,7 +525,12 @@ class Model(metaclass=ModelMetaclass):
         for field_name, field in cls.__fields__.items():
             field_schema = _field_to_json_schema(field)
             properties[field_name] = field_schema
-            if field.required:
+            # Only mark as required if field has no default and is not Optional
+            origin = get_origin(field.type)
+            args = get_args(field.type) if origin is not None else ()
+            is_optional = origin is Union and type(None) in args
+            has_default = field.default is not None
+            if field.required and not has_default and not is_optional:
                 required.append(field_name)
 
         schema = {
@@ -397,7 +542,71 @@ class Model(metaclass=ModelMetaclass):
         if required:
             schema["required"] = required
 
+        # Map model_config.extra to JSON Schema additionalProperties
+        config = getattr(cls, 'model_config', {}) or {}
+        extra_mode = config.get('extra', 'ignore')
+        if extra_mode == 'forbid':
+            schema["additionalProperties"] = False
+        elif extra_mode == 'allow':
+            schema["additionalProperties"] = True
+        else:
+            schema["additionalProperties"] = False  # Default for OpenAI compatibility
+
         return schema
+
+    @classmethod
+    def model_json_schema(cls) -> Dict[str, Any]:
+        """
+        Generate JSON schema compatible with OpenAI API.
+
+        This method fixes issues in the raw schema() output to ensure
+        compatibility with OpenAI's structured output requirements.
+
+        Returns:
+            Dict containing the fixed JSON schema
+        """
+        raw_schema = cls.json_schema()
+        return cls._fix_schema_for_openai(raw_schema)
+
+    @staticmethod
+    def _fix_schema_for_openai(schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Fix schema issues for OpenAI compatibility"""
+        if not isinstance(schema, dict):
+            return schema
+
+        fixed_schema = {}
+        for key, value in schema.items():
+            if key == "properties" and isinstance(value, dict):
+                # Fix the properties section
+                fixed_properties = {}
+                for prop_name, prop_def in value.items():
+                    if isinstance(prop_def, dict) and "type" in prop_def:
+                        fixed_prop = prop_def.copy()
+                        # Fix nested type objects: {"type": {"type": "string"}} -> {"type": "string"}
+                        if isinstance(prop_def["type"], dict) and "type" in prop_def["type"]:
+                            fixed_prop["type"] = prop_def["type"]["type"]
+                        fixed_properties[prop_name] = fixed_prop
+                    else:
+                        fixed_properties[prop_name] = prop_def
+                fixed_schema[key] = fixed_properties
+            elif key == "required" and isinstance(value, list):
+                # Fix required: remove fields that are nullable (Optional)
+                fixed_required = []
+                properties = fixed_schema.get("properties", schema.get("properties", {}))
+                for req_field in value:
+                    prop_def = properties.get(req_field, {})
+                    if not (isinstance(prop_def, dict) and prop_def.get("nullable")):
+                        fixed_required.append(req_field)
+                fixed_schema[key] = fixed_required
+            elif key in ["type", "title", "additionalProperties"]:
+                # Keep essential schema fields
+                fixed_schema[key] = value
+            # Skip other fields that might cause issues
+
+        # Ensure additionalProperties is False for strict schemas
+        fixed_schema["additionalProperties"] = False
+
+        return fixed_schema
 
 def _python_type_to_json_type(py_type: type) -> str:
     """Convert Python type to JSON Schema type"""
@@ -503,9 +712,12 @@ def _field_to_json_schema(field: Field) -> dict:
     # Handle Optional types
     if get_origin(field.type) == Union and type(None) in get_args(field.type):
         schema["nullable"] = True
-    
+
     if field.description:
         schema["description"] = field.description
+    # Propagate explicit enum constraints from Field(enum=...)
+    if getattr(field, 'enum', None):
+        schema["enum"] = field.enum
     
     return schema
 
@@ -566,25 +778,53 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
             type_name = getattr(field.type, '__name__', str(field.type))
             if field.enum and type_name == 'str':
                 enum_values = [str(v) for v in field.enum]
-            # pattern is already a str or None
-            validator.set_constraints(
-                name,
-                min_length=field.min_length,
-                max_length=field.max_length,
-                min_value=field.min_value,
-                max_value=field.max_value,
-                pattern=field.pattern,
-                email=field.email,
-                url=field.url,
-                ge=field.ge,
-                le=field.le,
-                gt=field.gt,
-                lt=field.lt,
-                min_items=field.min_items,
-                max_items=field.max_items,
-                unique_items=field.unique_items,
-                enum_values=enum_values,
-            )
+
+            # Prepare constraints safely for the core (avoid passing float to int-only slots)
+            ge_val = field.ge
+            le_val = field.le
+            gt_val = field.gt
+            lt_val = field.lt
+            min_val = field.min_value
+            max_val = field.max_value
+
+            if type_name == 'float':
+                # Route inclusive bounds through min_value/max_value, skip int-only exclusive slots
+                if ge_val is not None:
+                    min_val = float(ge_val) if min_val is None else max(float(ge_val), float(min_val))
+                    ge_val = None
+                if le_val is not None:
+                    max_val = float(le_val) if max_val is None else min(float(le_val), float(max_val))
+                    le_val = None
+                # Skip gt/lt for core; enforce in Python layer
+                gt_val = None
+                lt_val = None
+
+            # Build constraints and filter to parameters supported by validator.set_constraints
+            _kwargs = {
+                'min_length': field.min_length,
+                'max_length': field.max_length,
+                'min_value': min_val,
+                'max_value': max_val,
+                'pattern': field.pattern,
+                'email': field.email,
+                'url': field.url,
+                'ge': ge_val,
+                'le': le_val,
+                'gt': gt_val,
+                'lt': lt_val,
+                'min_items': field.min_items,
+                'max_items': field.max_items,
+                'unique_items': field.unique_items,
+                'enum_values': enum_values,
+            }
+            try:
+                import inspect
+                sig = inspect.signature(validator.set_constraints)
+                allowed = set(sig.parameters.keys())
+            except Exception:
+                allowed = set(_kwargs.keys())
+            filtered = {k: v for k, v in _kwargs.items() if k in allowed}
+            validator.set_constraints(name, **filtered)
 
 BaseModel = Model
 
