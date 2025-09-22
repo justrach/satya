@@ -17,6 +17,8 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        # Build both manylinux versions for broader compatibility
+        manylinux: ["2_17", "2_28"]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -27,14 +29,14 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          args: --release --out dist
+          args: --release --out dist --strip
           sccache: 'true'
-          manylinux: 2_28
-          container: quay.io/pypa/manylinux_2_28_x86_64
+          manylinux: ${{ matrix.manylinux }}
+          container: quay.io/pypa/manylinux_${{ matrix.manylinux }}_x86_64
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.python-version }}-x86_64
+          name: wheels-linux-${{ matrix.python-version }}-x86_64-${{ matrix.manylinux }}
           path: dist
 
   # Separate job for aarch64 Linux with specific config for cross-compilation
@@ -43,6 +45,8 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        # Build both manylinux versions for broader ARM compatibility
+        manylinux: ["2_17", "2_28"]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -67,15 +71,16 @@ jobs:
           args: >-
             --release 
             --out dist 
+            --strip
             --interpreter /opt/python/cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}-cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}/bin/python
-          manylinux: 2_28
-          container: quay.io/pypa/manylinux_2_28_aarch64
+          manylinux: ${{ matrix.manylinux }}
+          container: quay.io/pypa/manylinux_${{ matrix.manylinux }}_aarch64
           docker-options: "--platform linux/arm64"
       
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.python-version }}-aarch64
+          name: wheels-linux-${{ matrix.python-version }}-aarch64-${{ matrix.manylinux }}
           path: dist
 
   windows:
@@ -83,7 +88,8 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-        target: [x64]
+        # Support both x64 and x86 for broader Windows compatibility
+        target: [x64, x86]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +100,8 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          args: --release --out dist
+          target: ${{ matrix.target }}
+          args: --release --out dist --strip
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -118,7 +125,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --out dist --strip
           sccache: 'true'
           universal2: ${{ matrix.target == 'aarch64' }}
       - name: Upload wheels
