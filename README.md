@@ -256,6 +256,35 @@ Satya provides comprehensive validation that goes beyond basic type checking:
 | Custom error messages | ✅ | Limited | ✅ |
 | Batch processing | ✅ | ❌ | ❌ |
 
+### Schema Generation
+
+Satya provides comprehensive JSON Schema generation with OpenAI compatibility:
+
+```python
+from satya import Model, Field
+
+class User(Model):
+    name: str = Field(description="User name")
+    age: int = Field(description="User age")
+
+# Standard JSON Schema
+schema = User.json_schema()
+print(schema)
+# {
+#   "type": "object",
+#   "title": "User",
+#   "properties": {
+#     "name": {"type": "string", "description": "User name"},
+#     "age": {"type": "integer", "description": "User age"}
+#   },
+#   "required": ["name", "age"]
+# }
+
+# OpenAI-compatible schema (flattened types, strict validation)
+openai_schema = User.model_json_schema()
+# Fixes nested type objects and ensures OpenAI API compatibility
+```
+
 ### Migration from legacy bindings
 
 If you previously used the low-level core (`_satya.StreamValidatorCore`) or manually registered schemas with `StreamValidator`, migrate to the new model-first API. See the full guide: [`docs/migration.md`](docs/migration.md).
