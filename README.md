@@ -22,9 +22,9 @@ Satya (सत्य) is the Sanskrit word for **truth** and **reality**, embodyi
 
 Satya is a blazingly fast data validation library for Python, powered by Rust. It provides comprehensive validation capabilities while maintaining exceptional performance through innovative batch processing techniques.
 
-> ⚠️ **Latest Version: v0.3.7** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+> ⚠️ **Latest Version: v0.3.8** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
 
-## 📋 What's New in v0.3.7
+## 📋 What's New in v0.3.8
 
 ### 🏗️ Enhanced Nested Model Validation Support
 - **Dict[str, CustomModel] Support**: Complete validation support for dictionary structures containing custom model instances
@@ -36,6 +36,11 @@ Satya is a blazingly fast data validation library for Python, powered by Rust. I
 - **Dependency Tracking**: Automatically analyzes and tracks model relationships
 - **Topological Sorting**: Ensures models are validated in the correct dependency order
 - **Circular Dependency Detection**: Prevents infinite loops in complex model graphs
+
+### 📦 Source Distribution Support
+- **SDist Builds**: Proper source distribution builds enabling `--no-binary` installations
+- **Docker Run CI/CD**: Improved GitHub Actions compatibility with direct docker run commands
+- **Cross-Platform Compatibility**: Full support for Linux, macOS, and Windows across all architectures
 
 ### 🎯 Use Cases Enabled
 ```python
@@ -50,19 +55,20 @@ class MapElitesArchive(Model):
     resolution: int = Field(ge=1, le=20)
     archive: Dict[str, ArchiveEntry] = Field(description="Archive entries")
 
-# Now fully supported!
+# This now works perfectly!
 data = {
     "resolution": 5,
     "archive": {
         "cell_1_2": {"config": {"buffer_size": 1024}, "performance": 95.5}
     }
 }
-archive = MapElitesArchive(**data)  # ✅ Works perfectly!
+archive = MapElitesArchive(**data)  # Works perfectly!
 ```
 
 ### 🧪 Comprehensive Testing
 - Added complete test suite with 4 test methods covering nested Dict[str, Model] patterns
 - All 150+ tests pass with comprehensive coverage
+- Source distribution builds tested and verified
 
 ## Key Features:
 - **High-performance validation** with Rust-powered core
@@ -363,11 +369,12 @@ oks = User.model_validate_json_array_bytes(b'[{"id":1},{"id":2}]', streaming=Tru
 ```
 
 ## Current Status:
-Satya v0.3.7 is stable and production-ready. The core functionality includes comprehensive validation, schema generation, and enhanced nested model support. Key capabilities include:
+Satya v0.3.8 is stable and production-ready. The core functionality includes comprehensive validation, schema generation, enhanced nested model support, and source distribution builds. Key capabilities include:
 
 - **Complete Dict[str, CustomModel] Support**: Full validation for complex nested structures
 - **MAP-Elites Algorithm Compatibility**: Native support for evolutionary optimization archives
 - **Hierarchical Data Validation**: Recursive model resolution with dependency tracking
+- **Source Distribution Support**: Enable `uv pip install --no-binary satya satya==0.3.8`
 - **Provider-Agnostic Architecture**: Clean separation of core validation from provider-specific features
 
 We're actively working on:

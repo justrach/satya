@@ -2,18 +2,24 @@
 
 This document summarizes the key changes made to the Satya project to enhance Pydantic-like APIs, improve JSON Schema fidelity, and fix validation issues.
 
-## Version 0.3.7 (2025-09-23)
+## Version 0.3.8 (2025-09-23)
 
 ### Major Features Added
 - **Enhanced Nested Model Validation Support**: Complete support for `Dict[str, CustomModel]` patterns commonly used in MAP-Elites algorithms, configuration management, and hierarchical data structures
 - **ModelRegistry System**: New registry system that tracks model dependencies and performs topological sorting for proper validation order
 - **Recursive Model Resolution**: Automatic handling of complex nested model structures with proper dependency resolution
+- **Source Distribution Support**: Added proper sdist builds enabling `--no-binary` installations with uv/pip
+
+### CI/CD Improvements
+- **Docker Run Approach**: Replaced container-based maturin-action with direct docker run commands for better GitHub Actions compatibility
+- **Cross-Platform Builds**: Maintained full support for Linux (x86_64, aarch64), macOS (x86_64, arm64), and Windows (x64)
+- **Source Distribution**: Fixed sdist builds to include proper tar.gz files for source-based installations
 
 ### Core Enhancements
 - **Dict[str, Model] Support**: Full validation support for dictionary structures containing custom model instances
 - **Dependency Analysis**: Automatic analysis of model dependencies for proper validation ordering
 - **Topological Sorting**: Ensures models are validated in the correct dependency order
-- **Circular Dependency Detection**: Prevents infinite loops in model dependency graphs
+- **Circular Dependency Detection**: Prevents infinite loops in complex model graphs
 
 ### Technical Improvements
 - **Validator Bypass for Complex Fields**: Dict[str, Model] fields bypass core validator and use Python-level validation during model construction
@@ -25,6 +31,7 @@ This document summarizes the key changes made to the Satya project to enhance Py
 - **Configuration Management**: Hierarchical configuration systems with nested model dictionaries
 - **Machine Learning Pipelines**: Complex experiment suites with `Dict[str, ExperimentResult]` structures
 - **Scientific Data Structures**: Multi-level nested data with custom model types
+- **Source-based Installations**: Support for `uv pip install --no-binary satya satya==0.3.8`
 
 ### Backward Compatibility
 - All existing functionality preserved
