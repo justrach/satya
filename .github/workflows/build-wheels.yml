@@ -5,8 +5,7 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-# aaa
-# Add permissions needed for creating releases
+
 permissions:
   contents: write
   id-token: write
@@ -23,21 +22,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: x86_64
-          args: --release --out dist
-          sccache: 'true'
-          manylinux: 2_28
-          container: quay.io/pypa/manylinux_2_28_x86_64
+      
+      - name: Build wheels using docker run
+        run: |
+          docker run --rm \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            quay.io/pypa/manylinux_2_28_x86_64 \
+            bash -c "
+              export PATH=/opt/python/cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}-cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}/bin:\$PATH
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+              source ~/.cargo/env
+              pip install maturin
+              maturin build --release --out dist --interpreter /opt/python/cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}-cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}/bin/python
+            "
+      
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.python-version }}-x86_64
           path: dist
 
-  # Separate job for aarch64 Linux with specific config for cross-compilation
   linux-aarch64:
     runs-on: ubuntu-latest
     strategy:
@@ -50,27 +55,24 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       
-      # Set up QEMU for cross-platform emulation
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      # Use cross-compilation container with platform specified
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: aarch64
-          args: >-
-            --release 
-            --out dist 
-            --interpreter /opt/python/cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}-cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}/bin/python
-          manylinux: 2_28
-          container: quay.io/pypa/manylinux_2_28_aarch64
-          docker-options: "--platform linux/arm64"
+      - name: Build wheels using docker run (aarch64)
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            quay.io/pypa/manylinux_2_28_aarch64 \
+            bash -c "
+              export PATH=/opt/python/cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}-cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}/bin:\$PATH
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+              source ~/.cargo/env
+              pip install maturin
+              maturin build --release --out dist --target aarch64-unknown-linux-gnu --interpreter /opt/python/cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}-cp${{ matrix.python-version == '3.10' && '310' || matrix.python-version == '3.11' && '311' || matrix.python-version == '3.12' && '312' || matrix.python-version == '3.13' && '313' || matrix.python-version == '3.8' && '38' || '39' }}/bin/python
+            "
       
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -127,17 +129,40 @@ jobs:
           name: wheels-macos-${{ matrix.python-version }}-${{ matrix.target }}
           path: dist
 
-  collect-wheels:
-    name: Collect all wheels
+  sdist:
     runs-on: ubuntu-latest
-    needs: [linux-x86_64, linux-aarch64, windows, macos]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+      - name: Build source distribution
+        run: python -m build --sdist
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  collect-wheels:
+    name: Collect all wheels and sdist
+    runs-on: ubuntu-latest
+    needs: [linux-x86_64, linux-aarch64, windows, macos, sdist]
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
           path: all-wheels
           merge-multiple: true
-      - name: Upload combined wheels
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: all-wheels
+      - name: Upload combined artifacts
         uses: actions/upload-artifact@v4
         with:
           name: all-wheels
@@ -147,7 +172,6 @@ jobs:
     name: Release to PyPI
     runs-on: ubuntu-latest
     needs: [collect-wheels]
-    # This conditional allows manual triggering without requiring the tag push
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -157,7 +181,7 @@ jobs:
         with:
           name: all-wheels
           path: dist
-      - name: List wheels
+      - name: List artifacts
         run: ls -la dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -165,7 +189,6 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip_existing: true
           
-      # Create GitHub Release for tagged versions
       - name: Extract version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         id: get_version
@@ -178,10 +201,11 @@ jobs:
           echo "## Satya v${{ steps.get_version.outputs.VERSION }}" | cat - release_notes.md > temp && mv temp release_notes.md
           echo "" >> release_notes.md
           echo "## Artifacts" >> release_notes.md
-          echo "This release includes wheels for:" >> release_notes.md
-          echo "- Linux (x86_64, aarch64)" >> release_notes.md
-          echo "- macOS (x86_64, arm64)" >> release_notes.md
-          echo "- Windows (x64)" >> release_notes.md
+          echo "This release includes:" >> release_notes.md
+          echo "- Source distribution (sdist) for compilation from source" >> release_notes.md
+          echo "- Pre-built wheels for Linux (x86_64, aarch64)" >> release_notes.md
+          echo "- Pre-built wheels for macOS (x86_64, arm64)" >> release_notes.md
+          echo "- Pre-built wheels for Windows (x64)" >> release_notes.md
       
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
