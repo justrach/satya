@@ -22,28 +22,47 @@ Satya (सत्य) is the Sanskrit word for **truth** and **reality**, embodyi
 
 Satya is a blazingly fast data validation library for Python, powered by Rust. It provides comprehensive validation capabilities while maintaining exceptional performance through innovative batch processing techniques.
 
-> ⚠️ **Latest Version: v0.3.6** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+> ⚠️ **Latest Version: v0.3.7** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
 
-## 📋 What's New in v0.3.6
+## 📋 What's New in v0.3.7
 
-### 🏗️ OpenAI-Compatible Schema Generation
-- **New Method**: `Model.model_json_schema()` generates JSON schemas compatible with OpenAI's structured output API
-- **Schema Fixing**: Automatically flattens nested type objects (e.g., `{"type": {"type": "string"}}` → `{"type": "string"}`)
-- **Strict Validation**: Sets `additionalProperties: false` for strict schema validation
+### 🏗️ Enhanced Nested Model Validation Support
+- **Dict[str, CustomModel] Support**: Complete validation support for dictionary structures containing custom model instances
+- **MAP-Elites Algorithm Support**: Native support for complex archive structures like `Dict[str, ArchiveEntry]`
+- **Hierarchical Data Structures**: Full support for nested model dictionaries in configuration management and ML pipelines
+- **Recursive Model Resolution**: Automatic dependency analysis and topological sorting for proper validation order
+
+### 🔧 ModelRegistry System
+- **Dependency Tracking**: Automatically analyzes and tracks model relationships
+- **Topological Sorting**: Ensures models are validated in the correct dependency order
+- **Circular Dependency Detection**: Prevents infinite loops in complex model graphs
+
+### 🎯 Use Cases Enabled
+```python
+from satya import Model, Field
+from typing import Dict
+
+class ArchiveEntry(Model):
+    config: SystemConfig
+    performance: float = Field(ge=-1000.0, le=100000.0)
+
+class MapElitesArchive(Model):
+    resolution: int = Field(ge=1, le=20)
+    archive: Dict[str, ArchiveEntry] = Field(description="Archive entries")
+
+# Now fully supported!
+data = {
+    "resolution": 5,
+    "archive": {
+        "cell_1_2": {"config": {"buffer_size": 1024}, "performance": 95.5}
+    }
+}
+archive = MapElitesArchive(**data)  # ✅ Works perfectly!
+```
 
 ### 🧪 Comprehensive Testing
-- Added complete test suite with 5 test methods covering nested types, optional fields, enums, and lists
-- All 150 tests pass with comprehensive coverage
-
-### 🏛️ Provider-Agnostic Architecture
-- Removed OpenAI-specific code to maintain provider independence
-- Provider-specific adapters will live in the Bhumi project
-- Enhanced CI/CD with broader platform support (both manylinux versions, multiple Windows targets)
-
-### 📚 Enhanced Documentation
-- Updated README with schema generation examples
-- Comprehensive release notes and changelog
-- Improved migration guides
+- Added complete test suite with 4 test methods covering nested Dict[str, Model] patterns
+- All 150+ tests pass with comprehensive coverage
 
 ## Key Features:
 - **High-performance validation** with Rust-powered core
@@ -110,7 +129,7 @@ print(user)
 
 ## 🚀 Performance
 
-### Latest Benchmark Results (v0.3.6)
+### Latest Benchmark Results (v0.3.7)
 
 Our comprehensive benchmarks demonstrate Satya's exceptional performance when using batch processing:
 
@@ -344,7 +363,14 @@ oks = User.model_validate_json_array_bytes(b'[{"id":1},{"id":2}]', streaming=Tru
 ```
 
 ## Current Status:
-Satya v0.3.6 is stable and production-ready. The core functionality includes comprehensive validation, schema generation, and high-performance batch processing. We're actively working on:
+Satya v0.3.7 is stable and production-ready. The core functionality includes comprehensive validation, schema generation, and enhanced nested model support. Key capabilities include:
+
+- **Complete Dict[str, CustomModel] Support**: Full validation for complex nested structures
+- **MAP-Elites Algorithm Compatibility**: Native support for evolutionary optimization archives
+- **Hierarchical Data Validation**: Recursive model resolution with dependency tracking
+- **Provider-Agnostic Architecture**: Clean separation of core validation from provider-specific features
+
+We're actively working on:
 - Expanding type support
 - Adding more validation features
 - Improving error messages
