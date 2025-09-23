@@ -2,7 +2,36 @@
 
 This document summarizes the key changes made to the Satya project to enhance Pydantic-like APIs, improve JSON Schema fidelity, and fix validation issues.
 
-## Version 0.3.6 (2025-09-23)
+## Version 0.3.7 (2025-09-23)
+
+### Major Features Added
+- **Enhanced Nested Model Validation Support**: Complete support for `Dict[str, CustomModel]` patterns commonly used in MAP-Elites algorithms, configuration management, and hierarchical data structures
+- **ModelRegistry System**: New registry system that tracks model dependencies and performs topological sorting for proper validation order
+- **Recursive Model Resolution**: Automatic handling of complex nested model structures with proper dependency resolution
+
+### Core Enhancements
+- **Dict[str, Model] Support**: Full validation support for dictionary structures containing custom model instances
+- **Dependency Analysis**: Automatic analysis of model dependencies for proper validation ordering
+- **Topological Sorting**: Ensures models are validated in the correct dependency order
+- **Circular Dependency Detection**: Prevents infinite loops in model dependency graphs
+
+### Technical Improvements
+- **Validator Bypass for Complex Fields**: Dict[str, Model] fields bypass core validator and use Python-level validation during model construction
+- **Enhanced Model Construction**: Model.__init__ now handles Dict[str, Model] patterns by recursively constructing model instances
+- **Registry-based Validation**: New ModelRegistry class provides comprehensive model relationship tracking
+
+### Use Cases Enabled
+- **MAP-Elites Algorithms**: Archive structures with `Dict[str, ArchiveEntry]` patterns
+- **Configuration Management**: Hierarchical configuration systems with nested model dictionaries
+- **Machine Learning Pipelines**: Complex experiment suites with `Dict[str, ExperimentResult]` structures
+- **Scientific Data Structures**: Multi-level nested data with custom model types
+
+### Backward Compatibility
+- All existing functionality preserved
+- New features are additive and don't break existing code
+- Enhanced validation is transparent to existing users
+
+## Overview
 
 ### Features Added
 - **OpenAI-Compatible Schema Generation**: Added `Model.model_json_schema()` method to generate JSON schemas compatible with OpenAI API requirements

@@ -1,5 +1,5 @@
 # Configuration flag for string representation
-from typing import Any, Dict, Literal, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern
+from typing import Any, Dict, Literal, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern, Set
 from dataclasses import dataclass
 from itertools import islice
 from .json_loader import load_json  # Import the new JSON loader
@@ -208,13 +208,28 @@ class Model(metaclass=ModelMetaclass):
     def __init__(self, **data):
         """Validate on construction (Pydantic-like). Use model_construct to skip validation."""
         self._errors = []
-        # Validate input using cached validator
-        validator = self.__class__.validator()
-        result = validator.validate(data)
-        if not result.is_valid:
-            raise ModelValidationError(result.errors)
+        
+        # Preprocess data to handle Dict[str, Model] fields
+        validation_data = {}
+        for name, field in self.__fields__.items():
+            if name in data:
+                field_type = field.type
+                # For Dict[str, Model] fields, skip from validator data
+                # Validation happens during model construction
+                if get_origin(field_type) == dict:
+                    key_type, value_type = get_args(field_type)
+                    if isinstance(value_type, type) and issubclass(value_type, Model):
+                        continue  # Skip this field from validator
+                validation_data[name] = data[name]
+        
+        # Validate input using cached validator (only non-Dict[str, Model] fields)
+        if validation_data:
+            validator = self.__class__.validator()
+            result = validator.validate(validation_data)
+            if not result.is_valid:
+                raise ModelValidationError(result.errors)
 
-        normalized = result.value or {}
+        normalized = data.copy()  # Use original data for construction
 
         # Handle extras per model_config
         config = getattr(self.__class__, 'model_config', {}) or {}
@@ -264,6 +279,19 @@ class Model(metaclass=ModelMetaclass):
                 inner = args2[0]
                 if isinstance(inner, type) and issubclass(inner, Model) and isinstance(value, list):
                     value = [inner(**v) if isinstance(v, dict) else v for v in value]
+            # Dict[str, Model] - NEW: Support for dictionary of models
+            elif origin2 is dict and len(args2) >= 2:
+                key_type, value_type = args2[0], args2[1]
+                if (isinstance(value_type, type) and issubclass(value_type, Model) 
+                    and isinstance(value, dict)):
+                    # Validate each value in the dictionary is a valid model instance
+                    validated_dict = {}
+                    for k, v in value.items():
+                        if isinstance(v, dict):
+                            validated_dict[k] = value_type(**v)
+                        else:
+                            validated_dict[k] = v
+                    value = validated_dict
 
             self._data[name] = value
             setattr(self, name, value)
@@ -461,14 +489,27 @@ class Model(metaclass=ModelMetaclass):
         return cls.json_schema()
 
     @classmethod
+    def parse_raw(cls, data: str) -> 'Model':
+        """Compatibility alias for Pydantic v1-style API."""
+        return cls.model_validate_json(data)
+
+    @classmethod
     def parse_obj(cls, obj: Dict[str, Any]) -> 'Model':
         """Compatibility alias for Pydantic v1-style API."""
         return cls.model_validate(obj)
 
     @classmethod
-    def parse_raw(cls, data: str) -> 'Model':
-        """Compatibility alias for Pydantic v1-style API."""
-        return cls.model_validate_json(data)
+    def model_validate_nested(cls, data: Dict[str, Any]) -> 'Model':
+        """Validate model with enhanced support for nested Dict[str, CustomModel] patterns.
+        
+        This method provides better validation for complex nested structures like MAP-Elites
+        archives where you have Dict[str, ArchiveEntry] patterns.
+        """
+        registry = ModelRegistry()
+        result = registry.validate_with_dependencies(cls, data)
+        if not result.is_valid:
+            raise ModelValidationError(result.errors)
+        return result.value
 
     @classmethod
     def model_construct(cls, **data: Any) -> 'Model':
@@ -745,6 +786,125 @@ def _type_to_json_schema(type_: Type) -> Dict:
         return {'$ref': f'#/definitions/{type_.__name__}'}
     return {'type': 'object'}
 
+class ModelRegistry:
+    """Enhanced registry for tracking model dependencies and relationships"""
+    
+    def __init__(self):
+        self._models: Dict[str, Type[Model]] = {}
+        self._dependencies: Dict[str, Set[str]] = {}
+        self._resolution_order: Dict[str, int] = {}
+        
+    def register_model(self, model_class: Type[Model]) -> None:
+        """Register a model and analyze its dependencies"""
+        model_name = model_class.__name__
+        if model_name in self._models:
+            return  # Already registered
+            
+        self._models[model_name] = model_class
+        self._dependencies[model_name] = self._analyze_dependencies(model_class)
+        
+    def _analyze_dependencies(self, model_class: Type[Model]) -> Set[str]:
+        """Analyze all nested model dependencies for a given model class"""
+        dependencies = set()
+        
+        for field in model_class.__fields__.values():
+            field_type = field.type
+            
+            # Handle Dict[str, CustomModel] patterns
+            if get_origin(field_type) == dict:
+                key_type, value_type = get_args(field_type)
+                if self._is_model_class(value_type):
+                    dependencies.add(value_type.__name__)
+                    # Recursively analyze nested dependencies
+                    dependencies.update(self._analyze_dependencies(value_type))
+                    
+            # Handle List[CustomModel] patterns
+            elif get_origin(field_type) == list:
+                item_type = get_args(field_type)[0]
+                if self._is_model_class(item_type):
+                    dependencies.add(item_type.__name__)
+                    dependencies.update(self._analyze_dependencies(item_type))
+                    
+            # Handle direct Model references
+            elif self._is_model_class(field_type):
+                dependencies.add(field_type.__name__)
+                dependencies.update(self._analyze_dependencies(field_type))
+                
+        return dependencies
+        
+    def _is_model_class(self, type_: Any) -> bool:
+        """Check if a type is a Model subclass"""
+        try:
+            return isinstance(type_, type) and issubclass(type_, Model)
+        except TypeError:
+            return False
+            
+    def get_resolution_order(self, model_class: Type[Model]) -> List[Type[Model]]:
+        """Get the order in which models should be validated (topological sort)"""
+        model_name = model_class.__name__
+        
+        # Ensure all dependencies are registered
+        for dep_name in self._dependencies.get(model_name, set()):
+            if dep_name in self._models:
+                self.get_resolution_order(self._models[dep_name])
+                
+        # Perform topological sort
+        visited = set()
+        temp_visited = set()
+        order = []
+        
+        def visit(name: str):
+            if name in temp_visited:
+                raise ValueError(f"Circular dependency detected involving {name}")
+            if name in visited:
+                return
+                
+            temp_visited.add(name)
+            
+            # Visit dependencies first
+            for dep in self._dependencies.get(name, set()):
+                if dep in self._models:
+                    visit(dep)
+                    
+            temp_visited.remove(name)
+            visited.add(name)
+            order.append(self._models[name])
+            
+        visit(model_name)
+        return order
+        
+    def validate_with_dependencies(self, model_class: Type[Model], data: Dict[str, Any]) -> ValidationResult:
+        """Validate a model and all its dependencies in the correct order"""
+        try:
+            # Register the model and get validation order
+            self.register_model(model_class)
+            validation_order = self.get_resolution_order(model_class)
+            
+            # Validate dependencies first, then the main model
+            validated_instances = {}
+            
+            for model_cls in reversed(validation_order):  # Dependencies first
+                model_name = model_cls.__name__
+                
+                if model_cls == model_class:
+                    # This is the main model we're validating
+                    instance = model_cls(**data)
+                    validated_instances[model_name] = instance
+                else:
+                    # This is a dependency that should already be validated
+                    # through nested validation in the main model
+                    pass
+                    
+            # Return the main model instance
+            return ValidationResult(value=validated_instances[model_class.__name__])
+            
+        except ModelValidationError as e:
+            return ValidationResult(errors=e.errors)
+        except Exception as e:
+            return ValidationResult(errors=[
+                ValidationError(field="root", message=f"Validation failed: {str(e)}", path=[])
+            ])
+
 def _register_model(validator: 'StreamValidator', model: Type[Model], path: List[str] = None) -> None:
     """Register a model and its nested models with the validator"""
     path = path or []
@@ -757,6 +917,11 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
             inner_type = get_args(field_type)[0]
             if isinstance(inner_type, type) and issubclass(inner_type, Model):
                 _register_model(validator, inner_type, path + [model.__name__])
+        # Handle Dict[str, Model] case - NEW
+        elif get_origin(field_type) is dict:
+            value_type = get_args(field_type)[1]
+            if isinstance(value_type, type) and issubclass(value_type, Model):
+                _register_model(validator, value_type, path + [model.__name__])
         # Handle direct Model case
         elif isinstance(field_type, type) and issubclass(field_type, Model):
             _register_model(validator, field_type, path + [model.__name__])
@@ -771,7 +936,17 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
     # If this is the top-level model (no parent path), also populate the root schema
     if not path:
         for name, field in model.__fields__.items():
-            validator.add_field(name, field.type, required=field.required)
+            field_type = field.type
+            
+            # Special handling for Dict[str, Model] patterns
+            if get_origin(field_type) == dict:
+                key_type, value_type = get_args(field_type)
+                if isinstance(value_type, type) and issubclass(value_type, Model):
+                    # For Dict[str, Model] fields, skip validator registration
+                    # Validation happens entirely in Python during model construction
+                    continue
+                    
+            validator.add_field(name, field_type, required=field.required)
             # Propagate constraints to the core
             enum_values = None
             # Only apply enum for string fields for now (core enum compares strings)

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "satya"
-version = "0.3.6"
+version = "0.3.7"
 description = "Blazingly fast data validation for Python, powered by Rust"
 authors = [{ name = "Rach Pradhan" }]
 readme = { file = "README.md", content-type = "text/markdown" }
