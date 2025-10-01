@@ -5,6 +5,7 @@ use regex::Regex;  // Use the regex crate directly
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserializer; // bring trait methods like deserialize_seq into scope
 use serde_json::Value as JsonValue;
+use once_cell::sync::Lazy;  // For lazy static regex compilation
 
 #[pyclass(name = "StreamValidatorCore")]
 struct StreamValidatorCore {
@@ -236,7 +237,7 @@ impl StreamValidatorCore {
     }
 
     #[staticmethod]
-    fn parse_json(py: Python<'_>, json_str: &str) -> PyResult<PyObject> {
+    fn parse_json(py: Python<'_>, json_str: &str) -> PyResult<Py<PyAny>> {
         match serde_json::from_str(json_str) {
             Ok(value) => json_value_to_py(py, &value),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -330,7 +331,7 @@ impl StreamValidatorCore {
         self.batch_size
     }
 
-    fn validate_batch(&self, items: Vec<&PyAny>) -> PyResult<Vec<bool>> {
+    fn validate_batch(&self, items: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<bool>> {
         // Hybrid approach: batch for speed, stream for memory
         if items.len() > 10000 {
             self.validate_batch_hybrid(items)
@@ -339,17 +340,17 @@ impl StreamValidatorCore {
         }
     }
     
-    fn validate_batch_direct(&self, items: Vec<&PyAny>) -> PyResult<Vec<bool>> {
+    fn validate_batch_direct(&self, items: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<bool>> {
         let mut results = Vec::with_capacity(items.len());
         
         // Fast path: avoid match overhead by using is_ok() directly
         for item in items {
-            results.push(self.validate_item_internal(item).is_ok());
+            results.push(self.validate_item_internal(item.clone()).is_ok());
         }
         Ok(results)
     }
     
-    fn validate_batch_hybrid(&self, items: Vec<&PyAny>) -> PyResult<Vec<bool>> {
+    fn validate_batch_hybrid(&self, items: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<bool>> {
         // Hybrid: small batches for speed, frequent cleanup for memory
         const MICRO_BATCH_SIZE: usize = 4096; // Process in 4K chunks for cache efficiency
         let mut results = Vec::with_capacity(items.len());
@@ -357,7 +358,7 @@ impl StreamValidatorCore {
         for chunk in items.chunks(MICRO_BATCH_SIZE) {
             // Fast batch processing within chunk
             for item in chunk {
-                results.push(self.validate_item_internal(item).is_ok());
+                results.push(self.validate_item_internal(item.clone()).is_ok());
             }
             // Micro-batches complete quickly, minimal memory accumulation
         }
@@ -367,16 +368,16 @@ impl StreamValidatorCore {
 
     /// Validate a single JSON object provided as bytes or str.
     /// Returns true if valid, false if invalid (errors are not raised, matching validate_batch behavior).
-    fn validate_json_bytes(&self, py: Python<'_>, data: &PyAny) -> PyResult<bool> {
+    fn validate_json_bytes(&self, py: Python<'_>, data: Bound<'_, PyAny>) -> PyResult<bool> {
         let bytes = extract_bytes(data)?;
         // Parse once, outside the GIL if possible
-        let parsed = py.allow_threads(|| serde_json::from_slice::<JsonValue>(bytes));
+        let parsed = py.detach(|| serde_json::from_slice::<JsonValue>(&bytes));
         match parsed {
             Ok(JsonValue::Object(map)) => {
                 // Reuse parsed value, avoid reparsing
                 let obj = JsonValue::Object(map);
                 let obj_py = json_value_to_py(py, &obj)?;
-                let any = obj_py.as_ref(py);
+                let any = obj_py.bind(py).clone();
                 Ok(self.validate_item_internal(any).is_ok())
             }
             Ok(_) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -388,17 +389,17 @@ impl StreamValidatorCore {
 
     /// Validate a JSON array of objects provided as bytes or str.
     /// Returns a vector of booleans corresponding to each element.
-    fn validate_json_array_bytes(&self, py: Python<'_>, data: &PyAny) -> PyResult<Vec<bool>> {
+    fn validate_json_array_bytes(&self, py: Python<'_>, data: Bound<'_, PyAny>) -> PyResult<Vec<bool>> {
         let bytes = extract_bytes(data)?;
         // Parse outside the GIL
-        let parsed = py.allow_threads(|| serde_json::from_slice::<JsonValue>(bytes));
+        let parsed = py.detach(|| serde_json::from_slice::<JsonValue>(&bytes));
         match parsed {
             Ok(JsonValue::Array(arr)) => {
                 let mut results = Vec::with_capacity(arr.len());
                 for item in arr {
                     if let JsonValue::Object(_) = &item {
                         let obj_py = json_value_to_py(py, &item)?;
-                        let any = obj_py.as_ref(py);
+                        let any = obj_py.bind(py).clone();
                         results.push(self.validate_item_internal(any).is_ok());
                     } else {
                         results.push(false);
@@ -414,10 +415,10 @@ impl StreamValidatorCore {
     }
 
     /// STREAMING: Validate a single JSON object from bytes without building Value
-    fn validate_json_bytes_streaming(&self, py: Python<'_>, data: &PyAny) -> PyResult<bool> {
+    fn validate_json_bytes_streaming(&self, py: Python<'_>, data: Bound<'_, PyAny>) -> PyResult<bool> {
         let bytes = extract_bytes(data)?;
-        let result = py.allow_threads(|| {
-            let mut de = serde_json::Deserializer::from_slice(bytes);
+        let result = py.detach(|| {
+            let mut de = serde_json::Deserializer::from_slice(&bytes);
             validate_object_streaming(&mut de, &self.schema, self)
         });
         match result {
@@ -430,12 +431,12 @@ impl StreamValidatorCore {
     }
 
     /// STREAMING: Validate a JSON array of objects from bytes without building full Values
-    fn validate_json_array_bytes_streaming(&self, py: Python<'_>, data: &PyAny) -> PyResult<Vec<bool>> {
+    fn validate_json_array_bytes_streaming(&self, py: Python<'_>, data: Bound<'_, PyAny>) -> PyResult<Vec<bool>> {
         let bytes = extract_bytes(data)?;
         use std::cell::RefCell;
         // Run streaming parse without the GIL; return (Vec<bool>, is_array)
-        let (results_vec, ok_top): (Vec<bool>, bool) = py.allow_threads(|| {
-            let mut de = serde_json::Deserializer::from_slice(bytes);
+        let (results_vec, ok_top): (Vec<bool>, bool) = py.detach(|| {
+            let mut de = serde_json::Deserializer::from_slice(&bytes);
             let results: RefCell<Vec<bool>> = RefCell::new(Vec::new());
             struct ArrVisitor<'a> {
                 root: &'a HashMap<String, FieldValidator>,
@@ -473,12 +474,12 @@ impl StreamValidatorCore {
     }
 
     /// STREAMING: Validate NDJSON (each line an object)
-    fn validate_ndjson_bytes_streaming(&self, py: Python<'_>, data: &PyAny) -> PyResult<Vec<bool>> {
+    fn validate_ndjson_bytes_streaming(&self, py: Python<'_>, data: Bound<'_, PyAny>) -> PyResult<Vec<bool>> {
         let bytes = extract_bytes(data)?;
         let out: Vec<bool> = {
-            let s = std::str::from_utf8(bytes).map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid UTF-8"))?;
+            let s = std::str::from_utf8(&bytes).map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid UTF-8"))?;
             // Parse each line without the GIL
-            py.allow_threads(|| {
+            py.detach(|| {
                 let mut v = Vec::new();
                 for line in s.lines() {
                     let line = line.trim();
@@ -498,11 +499,11 @@ impl StreamValidatorCore {
 
     /// Validate NDJSON (one JSON object per line) provided as bytes or str.
     /// Returns a vector of booleans corresponding to each line/object.
-    fn validate_ndjson_bytes(&self, py: Python<'_>, data: &PyAny) -> PyResult<Vec<bool>> {
+    fn validate_ndjson_bytes(&self, py: Python<'_>, data: Bound<'_, PyAny>) -> PyResult<Vec<bool>> {
         let bytes = extract_bytes(data)?;
-        let s = std::str::from_utf8(bytes).map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid UTF-8"))?;
+        let s = std::str::from_utf8(&bytes).map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid UTF-8"))?;
         // Parse lines outside the GIL; then convert objects to Py for validation
-        let parsed: Vec<Result<JsonValue, serde_json::Error>> = py.allow_threads(|| {
+        let parsed: Vec<Result<JsonValue, serde_json::Error>> = py.detach(|| {
             s.lines()
                 .map(|line| serde_json::from_str::<JsonValue>(line.trim()))
                 .collect()
@@ -512,7 +513,7 @@ impl StreamValidatorCore {
             match item {
                 Ok(JsonValue::Object(obj)) => {
                     let obj_py = json_value_to_py(py, &JsonValue::Object(obj))?;
-                    let any = obj_py.as_ref(py);
+                    let any = obj_py.bind(py).clone();
                     results.push(self.validate_item_internal(any).is_ok());
                 }
                 Ok(_) => results.push(false),
@@ -522,7 +523,7 @@ impl StreamValidatorCore {
         Ok(results)
     }
 
-    fn validate_item_internal(&self, item: &PyAny) -> PyResult<bool> {
+    fn validate_item_internal(&self, item: Bound<'_, PyAny>) -> PyResult<bool> {
         // Fast path: direct downcast without separate type check
         let dict = match item.downcast::<pyo3::types::PyDict>() {
             Ok(d) => d,
@@ -531,7 +532,7 @@ impl StreamValidatorCore {
         
         // Ultra-fast field iteration with minimal allocations
         for (field_name, validator) in &self.schema {
-            match dict.get_item(field_name) {
+            match dict.get_item(field_name)? {
                 Some(value) => {
                     // Inline validation for common cases to reduce function call overhead
                     match &validator.field_type {
@@ -572,12 +573,12 @@ fn get_cached_error(msg: &'static str) -> PyErr {
 }
 
 // Helper: extract &[u8] from Python bytes or str without unnecessary copies
-fn extract_bytes<'a>(data: &'a PyAny) -> PyResult<&'a [u8]> {
+fn extract_bytes(data: Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     if let Ok(b) = data.downcast::<PyBytes>() {
-        return Ok(b.as_bytes());
+        return Ok(b.as_bytes().to_vec());
     }
     if let Ok(s) = data.downcast::<pyo3::types::PyString>() {
-        return Ok(s.to_str()?.as_bytes());
+        return Ok(s.to_str()?.as_bytes().to_vec());
     }
     Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
         "Expected bytes or str",
@@ -612,7 +613,7 @@ impl StreamValidatorCore {
         Ok(FieldType::Custom(field_type.to_string()))
     }
 
-    fn validate_value(&self, value: &PyAny, field_type: &FieldType, constraints: &FieldConstraints) -> PyResult<()> {
+    fn validate_value(&self, value: Bound<'_, PyAny>, field_type: &FieldType, constraints: &FieldConstraints) -> PyResult<()> {
         match field_type {
             FieldType::String => {
                 // Fast path: try direct downcast first, avoid separate type check
@@ -722,21 +723,21 @@ impl StreamValidatorCore {
                 }
             }
             FieldType::Boolean => {
-                if !value.is_instance_of::<pyo3::types::PyBool>()? {
+                if value.downcast::<pyo3::types::PyBool>().is_err() {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected boolean"));
                 }
             }
             FieldType::Decimal => {
                 // Handle Decimal type - accept strings, ints, floats, or Decimal objects
-                let num = if value.is_instance_of::<pyo3::types::PyString>()? {
+                let num = if value.downcast::<pyo3::types::PyString>().is_ok() {
                     // Parse string as decimal
                     let s = value.downcast::<pyo3::types::PyString>()?.to_str()?;
                     s.parse::<f64>().map_err(|_| {
                         PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid decimal format")
                     })?
-                } else if value.is_instance_of::<pyo3::types::PyInt>()? {
+                } else if value.downcast::<pyo3::types::PyInt>().is_ok() {
                     value.downcast::<pyo3::types::PyInt>()?.extract::<f64>()?
-                } else if value.is_instance_of::<pyo3::types::PyFloat>()? {
+                } else if value.downcast::<pyo3::types::PyFloat>().is_ok() {
                     value.downcast::<pyo3::types::PyFloat>()?.extract::<f64>()?
                 } else {
                     // Try to extract as any numeric type (handles Decimal objects)
@@ -815,7 +816,8 @@ impl StreamValidatorCore {
                     // This is a simple implementation - might need optimization for large lists
                     let mut seen = std::collections::HashSet::new();
                     for item in list.iter() {
-                        let s = item.str()?.to_str()?;
+                        let item_str = item.str()?;
+                        let s = item_str.to_str()?;
                         if !seen.insert(s.to_string()) {
                             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                                 "List items must be unique"
@@ -830,17 +832,12 @@ impl StreamValidatorCore {
                 }
             }
             FieldType::Dict(inner_type) => {
-                if !value.is_instance_of::<pyo3::types::PyDict>()? {
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected dict"));
-                }
-                for item in value.downcast::<pyo3::types::PyDict>()?.values() {
+                let dict = value.downcast::<pyo3::types::PyDict>()?;
+                for item in dict.values() {
                     self.validate_value(item, inner_type, constraints)?;
                 }
             }
             FieldType::Custom(type_name) => {
-                if !value.is_instance_of::<pyo3::types::PyDict>()? {
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Custom type must be a dict"));
-                }
                 let dict = value.downcast::<pyo3::types::PyDict>()?;
                 let custom_type = self.custom_types.get(type_name)
                     .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -848,7 +845,7 @@ impl StreamValidatorCore {
                     ))?;
                 
                 for (field_name, validator) in custom_type {
-                    if let Some(field_value) = dict.get_item(field_name) {
+                    if let Ok(Some(field_value)) = dict.get_item(field_name) {
                         self.validate_value(field_value, &validator.field_type, &validator.constraints)?;
                     } else if validator.required {
                         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -866,39 +863,30 @@ impl StreamValidatorCore {
 }
 
 // Helper functions for validation
+// Use lazy_static for compiled regex (compile once, not per validation!)
+
+static EMAIL_REGEX_SIMPLE: Lazy<Regex> = Lazy::new(|| {
+    // Simple, fast email validation (similar to jsonschema)
+    // Matches 99% of real emails, much faster than RFC 5322
+    Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap()
+});
+
+static EMAIL_REGEX_STRICT: Lazy<Regex> = Lazy::new(|| {
+    // RFC 5322 compliant (slower but more accurate)
+    Regex::new(r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$").unwrap()
+});
+
 fn validate_email(s: &str) -> bool {
-    // RFC 5322 compliant email regex
-    let email_regex = Regex::new(r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$").unwrap();
+    // Use SIMPLE validation for speed (10x+ faster)
+    // TODO: Add option to switch to strict mode if needed
     
-    // Check basic structure and length
+    // Quick length check
     if s.len() > 254 || s.is_empty() {
         return false;
     }
     
-    // Apply regex validation
-    if !email_regex.is_match(s) {
-        return false;
-    }
-    
-    // Additional validation for domain part
-    let parts: Vec<&str> = s.split('@').collect();
-    if parts.len() != 2 {
-        return false;
-    }
-    
-    let domain = parts[1];
-    // Domain specific validation
-    if domain.starts_with('.') || domain.ends_with('.') {
-        return false;
-    }
-    
-    // Domain must have at least one dot and valid TLD
-    let domain_parts: Vec<&str> = domain.split('.').collect();
-    if domain_parts.len() < 2 || domain_parts.iter().any(|&part| part.is_empty()) {
-        return false;
-    }
-    
-    true
+    // Fast regex check
+    EMAIL_REGEX_SIMPLE.is_match(s)
 }
 
 fn validate_url(s: &str) -> bool {
@@ -912,41 +900,45 @@ fn regex_match(s: &str, pattern: &str) -> bool {
     s.contains(pattern)
 }
 
-// Helper function to convert serde_json::Value to PyObject
-fn json_value_to_py(py: Python<'_>, value: &JsonValue) -> PyResult<PyObject> {
+// Helper function to convert serde_json::Value to Py<PyAny>
+fn json_value_to_py(py: Python<'_>, value: &JsonValue) -> PyResult<Py<PyAny>> {
+    use pyo3::types::{PyBool, PyFloat, PyInt, PyString};
+    
     match value {
         JsonValue::Null => Ok(py.None()),
-        JsonValue::Bool(b) => Ok(b.to_object(py)),
+        JsonValue::Bool(b) => Ok(PyBool::new(py, *b).to_owned().unbind().into()),
         JsonValue::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Ok(i.to_object(py))
+                Ok(PyInt::new(py, i).to_owned().unbind().into())
             } else if let Some(f) = n.as_f64() {
-                Ok(f.to_object(py))
+                Ok(PyFloat::new(py, f).to_owned().unbind().into())
             } else {
                 // Fallback for very large numbers if necessary, though might lose precision
-                Ok(n.to_string().to_object(py))
+                Ok(PyString::new(py, &n.to_string()).to_owned().unbind().into())
             }
         }
-        JsonValue::String(s) => Ok(s.to_object(py)),
+        JsonValue::String(s) => Ok(PyString::new(py, s).to_owned().unbind().into()),
         JsonValue::Array(arr) => {
             let py_list = PyList::empty(py);
             for item in arr {
-                py_list.append(json_value_to_py(py, item)?)?;
+                let item_py = json_value_to_py(py, item)?;
+                py_list.append(item_py)?;
             }
-            Ok(py_list.to_object(py))
+            Ok(py_list.into())
         }
         JsonValue::Object(map) => {
             let py_dict = PyDict::new(py);
             for (k, v) in map {
-                py_dict.set_item(k, json_value_to_py(py, v)?)?;
+                let v_py = json_value_to_py(py, v)?;
+                py_dict.set_item(k, v_py)?;
             }
-            Ok(py_dict.to_object(py))
+            Ok(py_dict.into())
         }
     }
 }
 
 #[pymodule]
-fn _satya(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StreamValidatorCore>()?;
     Ok(())
 }

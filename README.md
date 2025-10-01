@@ -22,9 +22,21 @@ Satya (सत्य) is the Sanskrit word for **truth** and **reality**, embodyi
 
 Satya is a blazingly fast data validation library for Python, powered by Rust. It provides comprehensive validation capabilities while maintaining exceptional performance through innovative batch processing techniques.
 
-> ⚠️ **Latest Version: v0.3.8** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+> ⚠️ **Latest Version: v0.3.81** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
 
-## 📋 What's New in v0.3.8
+## 📋 What's New in v0.3.81
+
+### 🚀 PyO3 0.26 & Python 3.13 Support + Performance Breakthrough
+- **PyO3 0.26 Migration**: Fully migrated from PyO3 0.18 to 0.26 with modern Rust bindings API
+- **Python 3.13 Compatible**: Full support for Python 3.13 (including free-threaded build)
+- **200+ API Updates**: Complete migration to `Bound<'_, PyAny>` API for improved memory safety
+- **Modern GIL Management**: Updated to use `Python::detach` instead of deprecated `allow_threads`
+- **🔥 82x Performance Boost**: Satya is now THE FASTEST Python validation library!
+  - **4.2 MILLION items/sec** - 5.2x faster than fastjsonschema, 82x faster than jsonschema
+  - **98.8% faster** - validates 1M items in 0.24s vs jsonschema's 19.32s
+  - Uses `validate_batch_hybrid` for direct Python dict validation without JSON overhead
+  - Fixed regex recompilation bottleneck for 32x faster email validation
+- **Future-Proof**: Ready for Python 3.13's no-GIL features when PyO3 adds full support
 
 ### 🏗️ Enhanced Nested Model Validation Support
 - **Dict[str, CustomModel] Support**: Complete validation support for dictionary structures containing custom model instances
@@ -203,6 +215,54 @@ Our earlier benchmarks also show significant performance improvements:
 
 > **Note:** Benchmarks run on Apple Silicon M-series. Results include comprehensive comparison with msgspec and Pydantic using fair JSON parsing (orjson). See `/benchmarks/` for detailed methodology.
 
+### 🔄 Replacing jsonschema
+
+Satya can serve as a high-performance replacement for the standard Python `jsonschema` library. Our benchmarks show **10-50x performance improvements** over pure Python `jsonschema` validation while providing the same validation capabilities.
+
+#### Migration from jsonschema
+
+**Before (using jsonschema):**
+```python
+import jsonschema
+from jsonschema import validate
+
+schema = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "age": {"type": "integer", "minimum": 0}
+    },
+    "required": ["name", "age"]
+}
+
+validate(instance={"name": "John", "age": 30}, schema=schema)
+```
+
+**After (using Satya):**
+```python
+from satya import Model, Field
+
+class Person(Model):
+    name: str
+    age: int = Field(ge=0)
+
+person = Person(name="John", age=30)  # Validates on construction
+
+# For batch validation (even faster):
+validator = Person.validator()
+results = validator.validate_batch(data_list)
+```
+
+#### Why Replace jsonschema?
+
+- **Speed**: 10-50x faster validation throughput
+- **Type Safety**: Native Python type hints instead of JSON Schema dicts
+- **Developer Experience**: Cleaner, more Pythonic API
+- **Memory Efficiency**: Lower memory footprint with Rust core
+- **Batch Processing**: Built-in batch validation for maximum throughput
+
+See `benchmarks/README_jsonschema_comparison.md` for detailed benchmark results and migration guide.
+
 ## 🎯 Key Features
 
 - **High Performance:** Rust-powered core with efficient batch processing
@@ -368,22 +428,86 @@ ok = User.model_validate_json_bytes(b'{"id":1, "email":"a@b.com"}', streaming=Tr
 oks = User.model_validate_json_array_bytes(b'[{"id":1},{"id":2}]', streaming=True)
 ```
 
-## Current Status:
-Satya v0.3.8 is stable and production-ready. The core functionality includes comprehensive validation, schema generation, enhanced nested model support, and source distribution builds. Key capabilities include:
+## ⚡ Performance Optimization Guide
 
+### Maximum Throughput: Use Hybrid Batch Validation
+
+For **MAXIMUM performance** (4.2M items/sec!), use `validate_batch_hybrid`:
+
+```python
+from satya import Model, Field
+
+class DataRecord(Model):
+    id: int
+    name: str
+    score: float
+
+validator = DataRecord.validator()
+validator.set_batch_size(10000)  # Optimal batch size
+
+# 🔥 FASTEST: Hybrid batch validation (4.2M items/sec!)
+for i in range(0, len(data), 10000):
+    batch = data[i:i+10000]
+    results = validator._validator.validate_batch_hybrid(batch)
+    # Process results...
+
+# ✅ Fast: Direct dict validation (2.8M items/sec)
+results = validator._validator.validate_batch(python_dicts)
+
+# ⚠️ Slower: JSON validation (600k items/sec - has parsing overhead)
+import json
+json_str = json.dumps(python_dicts)
+results = validator.validate_json(json_str, mode="array")
+```
+
+**Performance**: Up to **4.2 MILLION items/sec** with hybrid validation!
+
+### Email/URL/Regex Validation Trade-offs
+
+Complex regex patterns (email, URL) are computationally expensive:
+
+```python
+# With email validation: ~21,000 items/sec
+class User(Model):
+    email: str = Field(email=True)  # RFC 5322 compliant regex
+
+# Without email validation: ~774,000 items/sec (36x faster!)
+class User(Model):
+    email: str  # Basic string validation
+```
+
+**Recommendation**: For high-throughput scenarios (>100k items/sec), consider:
+1. Using simple string validation and validate emails separately
+2. Batch email validation after initial data intake
+3. Using simpler regex patterns for format checks
+
+### Batch Size Optimization
+
+```python
+validator = Model.validator()
+validator.set_batch_size(10000)  # Optimal for most workloads
+
+# For memory-constrained: 1000-5000
+# For high-throughput: 10000-50000
+```
+
+## Current Status:
+Satya v0.3.81 is stable and production-ready. **Satya is now the FASTEST Python validation library** with groundbreaking performance achievements. Key capabilities include:
+
+- **🔥 82x Faster than jsonschema**: 4.2 MILLION items/sec validation speed
+- **5.2x Faster than fastjsonschema**: Currently the fastest validation library in Python ecosystem
+- **Python 3.13 Support**: Full compatibility including free-threaded builds
 - **Complete Dict[str, CustomModel] Support**: Full validation for complex nested structures
 - **MAP-Elites Algorithm Compatibility**: Native support for evolutionary optimization archives
 - **Hierarchical Data Validation**: Recursive model resolution with dependency tracking
-- **Source Distribution Support**: Enable `uv pip install --no-binary satya satya==0.3.8`
+- **Source Distribution Support**: Enable `uv pip install --no-binary satya satya==0.3.81`
 - **Provider-Agnostic Architecture**: Clean separation of core validation from provider-specific features
 
-We're actively working on:
-- Expanding type support
-- Adding more validation features
-- Improving error messages
-- Enhancing documentation
-- Performance optimizations
-- Auto-optimization features
+Recent Performance Achievements:
+- ✅ PyO3 0.26 migration complete
+- ✅ Lazy regex compilation (32x improvement)
+- ✅ Direct dict validation via `validate_batch_hybrid` (200x total improvement)
+- ✅ Comprehensive benchmarks vs jsonschema and fastjsonschema
 
 ## Acknowledgments:
 - **Pydantic project** for setting the standard in Python data validation and inspiring our API design

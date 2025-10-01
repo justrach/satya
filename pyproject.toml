@@ -4,8 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "satya"
-version = "0.3.8"
-description = "Blazingly fast data validation for Python, powered by Rust"
+version = "0.3.81"
+description = "Blazingly fast data validation for Python, powered by Rust - 82x faster than jsonschema!"
 authors = [{ name = "Rach Pradhan" }]
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
@@ -16,8 +16,9 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]

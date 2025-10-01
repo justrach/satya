@@ -1,0 +1,17 @@
+{
+  "n_items": 1000000,
+  "batch_size": 10000,
+  "jsonschema_time": 19.322995901107788,
+  "jsonschema_mem": 614.375,
+  "jsonschema_ips": 51751.80935284833,
+  "satya_time": 0.23578977584838867,
+  "satya_mem": 619.375,
+  "satya_ips": 4241065.99364594,
+  "speedup": 81.95010081154813,
+  "time_reduction_pct": 98.77974524729434,
+  "has_fastjsonschema": true,
+  "fastjsonschema_time": 1.218752145767212,
+  "fastjsonschema_mem": 616.765625,
+  "fastjsonschema_ips": 820511.3758962811,
+  "speedup_vs_fast": 5.168808280096342
+}
