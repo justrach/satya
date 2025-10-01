@@ -22,9 +22,9 @@ Satya (सत्य) is the Sanskrit word for **truth** and **reality**, embodyi
 
 Satya is a blazingly fast data validation library for Python, powered by Rust. It provides comprehensive validation capabilities while maintaining exceptional performance through innovative batch processing techniques.
 
-> ⚠️ **Latest Version: v0.3.81** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+> ⚠️ **Latest Version: v0.3.82** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
 
-## 📋 What's New in v0.3.81
+## 📋 What's New in v0.3.82
 
 ### 🚀 PyO3 0.26 & Python 3.13 Support + Performance Breakthrough
 - **PyO3 0.26 Migration**: Fully migrated from PyO3 0.18 to 0.26 with modern Rust bindings API
@@ -492,7 +492,7 @@ validator.set_batch_size(10000)  # Optimal for most workloads
 ```
 
 ## Current Status:
-Satya v0.3.81 is stable and production-ready. **Satya is now the FASTEST Python validation library** with groundbreaking performance achievements. Key capabilities include:
+Satya v0.3.82 is stable and production-ready. **Satya is now the FASTEST Python validation library** with groundbreaking performance achievements. Key capabilities include:
 
 - **🔥 82x Faster than jsonschema**: 4.2 MILLION items/sec validation speed
 - **5.2x Faster than fastjsonschema**: Currently the fastest validation library in Python ecosystem
@@ -500,7 +500,7 @@ Satya v0.3.81 is stable and production-ready. **Satya is now the FASTEST Python 
 - **Complete Dict[str, CustomModel] Support**: Full validation for complex nested structures
 - **MAP-Elites Algorithm Compatibility**: Native support for evolutionary optimization archives
 - **Hierarchical Data Validation**: Recursive model resolution with dependency tracking
-- **Source Distribution Support**: Enable `uv pip install --no-binary satya satya==0.3.81`
+- **Source Distribution Support**: Enable `uv pip install --no-binary satya satya==0.3.82`
 - **Provider-Agnostic Architecture**: Clean separation of core validation from provider-specific features
 
 Recent Performance Achievements:
