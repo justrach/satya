@@ -1003,6 +1003,17 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
 
 BaseModel = Model
 
+# Export new validators and ABSENT sentinel
+from .scalar_validators import (
+    StringValidator,
+    IntValidator, 
+    NumberValidator,
+    BooleanValidator,
+)
+from .array_validator import ArrayValidator
+from .absent import ABSENT, is_absent, filter_absent
+from .json_schema_compiler import compile_json_schema, JSONSchemaCompiler
+
 def __getattr__(name: str):
     """Lazy attribute access to avoid importing heavy modules at import time."""
     if name == 'StreamValidator':
@@ -1012,5 +1023,31 @@ def __getattr__(name: str):
         from ._satya import StreamValidatorCore as _SVC
         return _SVC
     raise AttributeError(name)
+
+# Export all public APIs
+__all__ = [
+    # Core classes
+    'Model',
+    'BaseModel',
+    'Field',
+    'ValidationError',
+    'ValidationResult',
+    'ModelValidationError',
+    # Scalar validators
+    'StringValidator',
+    'IntValidator',
+    'NumberValidator',
+    'BooleanValidator',
+    # Array validator
+    'ArrayValidator',
+    # ABSENT sentinel
+    'ABSENT',
+    'is_absent',
+    'filter_absent',
+    # JSON loader
+    'load_json',
+    # Version
+    '__version__',
+]
 
 __all__ = ['StreamValidator', 'load_json', 'Model', 'BaseModel', 'Field', 'ValidationResult', 'ValidationError', 'ModelValidationError', '__version__']
