@@ -315,6 +315,13 @@ class BooleanValidator:
                 errors=[VE(field="value", message=f"Expected boolean, got {type(value).__name__}", path=["value"])]
             )
         
+        # Enum check (Python layer)
+        if self.enum is not None and value not in self.enum:
+            return VR(
+                value=None,
+                errors=[VE(field="value", message=f"Value must be one of: {self.enum}", path=["value"])]
+            )
+        
         # Rust validation
         data = {"value": value}
         result = self._validator.validate(data)

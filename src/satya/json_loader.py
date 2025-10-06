@@ -8,6 +8,7 @@ try:
     import orjson
     _HAVE_ORJSON = True
 except ImportError:
+    orjson = None  # Make it mockable
     _HAVE_ORJSON = False
 
 # Fallback to standard json

@@ -22,7 +22,16 @@ Satya (सत्य) is the Sanskrit word for **truth** and **reality**, embodyi
 
 Satya is a blazingly fast data validation library for Python, powered by Rust. It provides comprehensive validation capabilities while maintaining exceptional performance through innovative batch processing techniques.
 
-> ⚠️ **Latest Version: v0.3.83** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+> ⚠️ **Latest Version: v0.3.85** - Upgrading from v0.2? Read the migration guide: [docs/migration.md](docs/migration.md). v0.3 introduces a Pydantic-like DX with breaking changes.
+
+## 📋 What's New in v0.3.85
+
+- **List[Model] Support (Highly Requested!)**
+  - Nested lists of models now validate recursively at construction time (`List[MyModel]`, `Optional[List[MyModel]]`, etc.)
+  - Automatic skipping of nested lists/dicts during Rust registration prevents type mismatches
+  - Maintains Satya's 2.4M+ items/sec throughput with zero regressions
+- **Fixed Income Securities Example**: `examples/fixed_income_securities.py` shows real-world validation for bond indices, nested lists, and performance measurement.
+- **Comprehensive Test Suite**: `tests/test_fixed_income_securities.py` adds 10 tests covering valid/invalid nested data and batch performance.
 
 ## 📋 What's New in v0.3.83
 

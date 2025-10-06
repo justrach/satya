@@ -19,14 +19,33 @@ T = TypeVar('T')
 
 @dataclass
 class ValidationError:
-    """Represents a validation error"""
+    """Represents a validation error with enhanced context"""
     field: str
     message: str
     path: List[str]
+    value: Any = None
+    constraint: Optional[str] = None
+    suggestion: Optional[str] = None
+    context: Optional[str] = None
 
     def __str__(self) -> str:
         loc = ".".join(self.path) if self.path else self.field
-        return f"{loc}: {self.message}"
+        parts = [f"{loc}: {self.message}"]
+        
+        if self.value is not None:
+            value_repr = repr(self.value) if len(repr(self.value)) < 50 else repr(self.value)[:47] + "..."
+            parts.append(f"  Value: {value_repr}")
+        
+        if self.constraint:
+            parts.append(f"  Constraint: {self.constraint}")
+        
+        if self.suggestion:
+            parts.append(f"  Suggestion: {self.suggestion}")
+        
+        if self.context:
+            parts.append(f"  Context: {self.context}")
+        
+        return "\n".join(parts)
 
 class ValidationResult(Generic[T]):
     """Represents the result of validation"""
@@ -209,20 +228,39 @@ class Model(metaclass=ModelMetaclass):
         """Validate on construction (Pydantic-like). Use model_construct to skip validation."""
         self._errors = []
         
-        # Preprocess data to handle Dict[str, Model] fields
+        # Preprocess data to handle List[Model] and Dict[str, Model] fields
         validation_data = {}
         for name, field in self.__fields__.items():
             if name in data:
                 field_type = field.type
+                # Unwrap Optional[T]
+                origin = get_origin(field_type)
+                args = get_args(field_type) if origin is not None else ()
+                if origin is Union and type(None) in args:
+                    non_none = [a for a in args if a is not type(None)]
+                    field_type = non_none[0] if non_none else field_type
+                
+                # Get origin and args of potentially unwrapped type
+                origin = get_origin(field_type)
+                args = get_args(field_type) if origin is not None else ()
+                
+                # For List[Model] fields, skip from validator data
+                # Validation happens during model construction
+                if origin is list and args:
+                    inner_type = args[0]
+                    if isinstance(inner_type, type) and issubclass(inner_type, Model):
+                        continue  # Skip this field from validator
+                
                 # For Dict[str, Model] fields, skip from validator data
                 # Validation happens during model construction
-                if get_origin(field_type) == dict:
-                    key_type, value_type = get_args(field_type)
+                if origin is dict and len(args) >= 2:
+                    key_type, value_type = args[0], args[1]
                     if isinstance(value_type, type) and issubclass(value_type, Model):
                         continue  # Skip this field from validator
+                
                 validation_data[name] = data[name]
         
-        # Validate input using cached validator (only non-Dict[str, Model] fields)
+        # Validate input using cached validator (excluding List[Model] and Dict[str, Model] fields)
         if validation_data:
             validator = self.__class__.validator()
             result = validator.validate(validation_data)
@@ -938,9 +976,30 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
         for name, field in model.__fields__.items():
             field_type = field.type
             
-            # Special handling for Dict[str, Model] patterns
-            if get_origin(field_type) == dict:
-                key_type, value_type = get_args(field_type)
+            # Special handling for List[Model] and Dict[str, Model] patterns
+            # Unwrap Optional[T] first
+            unwrapped_type = field_type
+            origin = get_origin(field_type)
+            args = get_args(field_type) if origin is not None else ()
+            if origin is Union and type(None) in args:
+                non_none = [a for a in args if a is not type(None)]
+                unwrapped_type = non_none[0] if non_none else field_type
+            
+            # Check unwrapped type
+            origin = get_origin(unwrapped_type)
+            args = get_args(unwrapped_type) if origin is not None else ()
+            
+            # Skip List[Model] fields
+            if origin is list and args:
+                inner_type = args[0]
+                if isinstance(inner_type, type) and issubclass(inner_type, Model):
+                    # For List[Model] fields, skip validator registration
+                    # Validation happens entirely in Python during model construction
+                    continue
+            
+            # Skip Dict[str, Model] fields
+            if origin is dict and len(args) >= 2:
+                key_type, value_type = args[0], args[1]
                 if isinstance(value_type, type) and issubclass(value_type, Model):
                     # For Dict[str, Model] fields, skip validator registration
                     # Validation happens entirely in Python during model construction
@@ -1014,6 +1073,10 @@ from .array_validator import ArrayValidator
 from .absent import ABSENT, is_absent, filter_absent
 from .json_schema_compiler import compile_json_schema, JSONSchemaCompiler
 
+# Web framework support (TurboAPI enhancement)
+from . import web
+from . import profiling
+
 def __getattr__(name: str):
     """Lazy attribute access to avoid importing heavy modules at import time."""
     if name == 'StreamValidator':
@@ -1044,10 +1107,15 @@ __all__ = [
     'ABSENT',
     'is_absent',
     'filter_absent',
+    # JSON Schema compiler
+    'compile_json_schema',
+    'JSONSchemaCompiler',
     # JSON loader
     'load_json',
+    # Web framework support (TurboAPI enhancement)
+    'web',
+    # Performance profiling
+    'profiling',
     # Version
     '__version__',
 ]
-
-__all__ = ['StreamValidator', 'load_json', 'Model', 'BaseModel', 'Field', 'ValidationResult', 'ValidationError', 'ModelValidationError', '__version__']

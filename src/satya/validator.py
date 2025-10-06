@@ -260,6 +260,71 @@ class StreamValidator:
                 if res.is_valid or collect_errors:
                     yield res
 
+    # --- Zero-Copy Validation API (TurboAPI Enhancement) ---
+    def validate_from_bytes(self, data: bytes, *, streaming: bool = True, zero_copy: bool = True) -> bool:
+        """Zero-copy validation directly from bytes (TurboAPI-style).
+        
+        This method provides maximum performance by:
+        1. Avoiding JSON parsing to Python objects
+        2. Using streaming validation in Rust
+        3. No intermediate copies or allocations
+        
+        Args:
+            data: Raw bytes containing JSON object
+            streaming: Use streaming parser (default: True)
+            zero_copy: Avoid copies where possible (default: True)
+        
+        Returns:
+            True if valid, False otherwise
+        
+        Example:
+            >>> validator = StreamValidator()
+            >>> validator.add_field('name', str)
+            >>> json_bytes = b'{"name": "test"}'
+            >>> validator.validate_from_bytes(json_bytes)  # Ultra-fast!
+            True
+        """
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError("Expected bytes or bytearray")
+        
+        # Use streaming validation for zero-copy performance
+        if streaming and zero_copy:
+            return self._core.validate_json_bytes_streaming(data)
+        else:
+            return self._core.validate_json_bytes(data)
+    
+    def validate_json_stream(self, stream, *, chunk_size: int = 8192, streaming: bool = True) -> Iterator[bool]:
+        """Validate JSON objects from a stream with zero-copy.
+        
+        Processes chunks of data without building full objects in memory.
+        Ideal for large payloads or streaming HTTP requests.
+        
+        Args:
+            stream: File-like object or iterator yielding bytes
+            chunk_size: Size of chunks to read (default: 8KB)
+            streaming: Use streaming parser (default: True)
+        
+        Yields:
+            bool for each validated object
+        
+        Example:
+            >>> with open('data.ndjson', 'rb') as f:
+            ...     for is_valid in validator.validate_json_stream(f):
+            ...         print(f"Valid: {is_valid}")
+        """
+        buffer = b''
+        for chunk in iter(lambda: stream.read(chunk_size), b''):
+            buffer += chunk
+            # Split on newlines for NDJSON format
+            while b'\n' in buffer:
+                line, buffer = buffer.split(b'\n', 1)
+                if line.strip():
+                    yield self.validate_from_bytes(line, streaming=streaming, zero_copy=True)
+        
+        # Process remaining data
+        if buffer.strip():
+            yield self.validate_from_bytes(buffer, streaming=streaming, zero_copy=True)
+    
     # --- JSON bytes/str Validation API ---
     def validate_json(self, data: Any, mode: str = "object", streaming: bool = False):
         """Validate JSON provided as bytes or str using Rust core.

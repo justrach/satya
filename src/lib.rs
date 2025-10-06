@@ -938,6 +938,7 @@ fn json_value_to_py(py: Python<'_>, value: &JsonValue) -> PyResult<Py<PyAny>> {
 }
 
 #[pymodule]
+#[pyo3(gil_used = false)]  // Python 3.13 free-threading support
 fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StreamValidatorCore>()?;
     Ok(())
