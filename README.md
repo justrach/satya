@@ -68,6 +68,21 @@ print(f"✅ Validated {len(users)} users at 5× Pydantic speed!")
 
 **That's it!** Zero code changes needed - just faster validation! 🎉
 
+---
+
+## 📊 Performance at a Glance
+
+<p align="center">
+  <img src="benchmarks/performance_comparison_simple.png" alt="Performance Comparison" width="100%"/>
+</p>
+
+**Key Takeaways:**
+- 🚀 **Batch Validation**: 5.46× faster (5.0M queries/sec vs 915K)
+- ⚡ **Single Validation**: 1.09× faster (1.1M queries/sec vs 1.02M)
+- 🔥 **Field Access**: 1.01× parity (66.2M queries/sec vs 65.3M)
+
+---
+
 ## 🎉 What's New in v0.4.0 - Production Ready Release!
 
 ### **5.46× FASTER BATCH VALIDATION + FIELD ACCESS PARITY!**
