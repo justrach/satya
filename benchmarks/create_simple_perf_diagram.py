@@ -25,11 +25,11 @@ ax.set_facecolor('#f8f9fa')
 y_pos = np.arange(len(metrics))
 bar_height = 0.35
 
-# Create bars
+# Create bars - Pydantic pink/red, Satya blue/cyan (matching logo)
 bars_pydantic = ax.barh(y_pos - bar_height/2, pydantic_perf, bar_height, 
-                        label='Pydantic 2.12.0', color='#E92063', alpha=0.8, edgecolor='black', linewidth=1.5)
+                        label='Pydantic 2.12.0', color='#E92063', alpha=0.85, edgecolor='black', linewidth=1.5)
 bars_satya = ax.barh(y_pos + bar_height/2, satya_perf, bar_height,
-                     label='Satya 0.4.0', color='#00FF88', alpha=0.8, edgecolor='black', linewidth=1.5)
+                     label='Satya 0.4.0', color='#00A8E8', alpha=0.85, edgecolor='black', linewidth=1.5)
 
 # Customize
 ax.set_yticks(y_pos)
@@ -55,7 +55,7 @@ for i, (bar_p, bar_s) in enumerate(zip(bars_pydantic, bars_satya)):
     speedup_text = f'{speedups[i]:.2f}×' if speedups[i] < 2 else f'{speedups[i]:.1f}×'
     ax.text(width_s, bar_s.get_y() + bar_s.get_height()/2,
             f'  {label_s} ({speedup_text})', ha='left', va='center', 
-            fontsize=11, fontweight='bold', color='#00AA00')
+            fontsize=11, fontweight='bold', color='#0066CC')
 
 # Grid
 ax.grid(axis='x', alpha=0.3, linestyle='--', linewidth=0.8)
