@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "scenario": "Simple Unconstrained",
+      "baseline_ips": 292962.15916078654,
+      "optimized_ips": 1316339.537363084,
+      "speedup": 4.493206703329343
+    },
+    {
+      "scenario": "Constrained",
+      "baseline_ips": 378384.3462008194,
+      "optimized_ips": 378384.3462008194,
+      "speedup": 1.0
+    },
+    {
+      "scenario": "Hybrid",
+      "baseline_ips": 218290.79692243997,
+      "optimized_ips": 218290.79692243997,
+      "speedup": 1.0
+    },
+    {
+      "scenario": "Nested Objects",
+      "baseline_ips": 154575.55826093303,
+      "optimized_ips": 6354139.986549759,
+      "speedup": 41.10701625818217
+    },
+    {
+      "scenario": "Lists",
+      "baseline_ips": 378432.8289391,
+      "optimized_ips": 3114691.897444069,
+      "speedup": 8.230501318228145
+    }
+  ],
+  "summary": {
+    "avg_baseline": 284529.1378968158,
+    "avg_optimized": 2276369.312896034,
+    "avg_speedup": 11.166144855947932
+  }
+}

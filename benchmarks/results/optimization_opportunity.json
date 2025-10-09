@@ -1,0 +1,40 @@
+{
+  "current_state": {
+    "simple_validation": {
+      "satya": 6241330,
+      "msgspec": 10475886,
+      "native_python": 26760629
+    },
+    "complex_validation": {
+      "satya": 2156698,
+      "msgspec": 1982007
+    }
+  },
+  "detailed_tests": {
+    "simple_string": {
+      "satya": 283226,
+      "native": 26760629,
+      "speedup": 94.49
+    },
+    "simple_object": {
+      "satya": 131673,
+      "native": 5994455,
+      "speedup": 45.53
+    },
+    "with_constraints": {
+      "satya": 126039,
+      "native": 4960922,
+      "speedup": 39.36
+    },
+    "nested_objects": {
+      "satya": 89235,
+      "native": 6752935,
+      "speedup": 75.68
+    },
+    "lists": {
+      "satya": 295316,
+      "native": 3426398,
+      "speedup": 11.6
+    }
+  }
+}

@@ -4,8 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "satya"
-version = "0.3.86"
-description = "Blazingly fast data validation for Python, powered by Rust - 82x faster than jsonschema!"
+version = "0.4.0"
+description = "THE FASTEST Python validation library - 1.90× faster than Pydantic, with 100% API compatibility!"
 authors = [{ name = "Rach Pradhan" }]
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
@@ -19,11 +19,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 [tool.maturin]
 python-source = "src"

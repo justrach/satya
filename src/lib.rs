@@ -7,6 +7,15 @@ use serde::Deserializer; // bring trait methods like deserialize_seq into scope
 use serde_json::Value as JsonValue;
 use once_cell::sync::Lazy;  // For lazy static regex compilation
 
+mod compiled_validator;
+use compiled_validator::BlazeCompiledValidator;
+
+mod native_model;
+use native_model::{NativeModel, hydrate_one, hydrate_batch, hydrate_batch_parallel};
+
+mod fast_model;
+use fast_model::{UltraFastModel, hydrate_one_ultra_fast, hydrate_batch_ultra_fast, hydrate_batch_ultra_fast_parallel};
+
 #[pyclass(name = "StreamValidatorCore")]
 struct StreamValidatorCore {
     schema: HashMap<String, FieldValidator>,
@@ -523,6 +532,11 @@ impl StreamValidatorCore {
         Ok(results)
     }
 
+    /// PYDANTIC-STYLE: Validate and return dict (ONE Python/Rust crossing!)
+    fn validate_python_fast(&self, py: Python<'_>, data: Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
+        self.validate_python_dict(py, data)
+    }
+
     fn validate_item_internal(&self, item: Bound<'_, PyAny>) -> PyResult<bool> {
         // Fast path: direct downcast without separate type check
         let dict = match item.downcast::<pyo3::types::PyDict>() {
@@ -564,6 +578,55 @@ impl StreamValidatorCore {
         }
 
         Ok(true)
+    }
+    
+    /// PYDANTIC-STYLE: Validate and return dict (stay in Rust!)
+    /// This is THE KEY to matching Pydantic's performance - avoid Python/Rust boundary!
+    #[inline]
+    fn validate_python_dict(&self, py: Python<'_>, data: Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
+        // PYDANTIC OPTIMIZATION: Stay in Rust, build dict, return to Python ONCE!
+        let validated_dict = PyDict::new(py);
+        
+        // Validate each field and add to validated dict
+        for (field_name, validator) in &self.schema {
+            match data.get_item(field_name)? {
+                Some(value) => {
+                    // FAST PATH: For unconstrained fields, just type check
+                    if validator.constraints.is_simple() {
+                        let type_ok = match &validator.field_type {
+                            FieldType::String => value.is_exact_instance_of::<pyo3::types::PyString>(),
+                            FieldType::Integer => value.is_exact_instance_of::<pyo3::types::PyInt>() && !value.is_instance_of::<pyo3::types::PyBool>(),
+                            FieldType::Float => value.is_exact_instance_of::<pyo3::types::PyFloat>() || value.is_exact_instance_of::<pyo3::types::PyInt>(),
+                            FieldType::Boolean => value.is_exact_instance_of::<pyo3::types::PyBool>(),
+                            FieldType::List(_) => value.is_exact_instance_of::<pyo3::types::PyList>(),
+                            FieldType::Dict(_) => value.is_exact_instance_of::<pyo3::types::PyDict>(),
+                            _ => true,
+                        };
+                        
+                        if !type_ok {
+                            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                format!("Field '{}' has incorrect type", field_name)
+                            ));
+                        }
+                        
+                        validated_dict.set_item(field_name, &value)?;
+                    } else {
+                        // SLOW PATH: Validate with constraints
+                        self.validate_value(value.clone(), &validator.field_type, &validator.constraints)?;
+                        validated_dict.set_item(field_name, value)?;
+                    }
+                }
+                None if validator.required => {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        format!("Required field '{}' is missing", field_name)
+                    ));
+                }
+                None => {}
+            }
+        }
+        
+        // Return the validated dict to Python (ONE boundary crossing!)
+        Ok(validated_dict.unbind())
     }
 }
 
@@ -941,5 +1004,17 @@ fn json_value_to_py(py: Python<'_>, value: &JsonValue) -> PyResult<Py<PyAny>> {
 #[pyo3(gil_used = false)]  // Python 3.13 free-threading support
 fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StreamValidatorCore>()?;
+    m.add_class::<BlazeCompiledValidator>()?;
+    m.add_class::<NativeModel>()?;
+    m.add_function(wrap_pyfunction!(hydrate_one, m)?)?;
+    m.add_function(wrap_pyfunction!(hydrate_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(hydrate_batch_parallel, m)?)?;
+    
+    // UltraFastModel - Shape-based models with interned strings (Hidden Classes technique)
+    m.add_class::<UltraFastModel>()?;
+    m.add_function(wrap_pyfunction!(hydrate_one_ultra_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(hydrate_batch_ultra_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(hydrate_batch_ultra_fast_parallel, m)?)?;
+    
     Ok(())
 }
