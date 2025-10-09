@@ -68,35 +68,35 @@ print(f"✅ Validated {len(users)} users at 5× Pydantic speed!")
 
 **That's it!** Zero code changes needed - just faster validation! 🎉
 
-## 🎉 What's New in v0.3.86 - ULTIMATE PERFORMANCE BREAKTHROUGH!
+## 🎉 What's New in v0.4.0 - Production Ready Release!
 
-### **MATCHED PYDANTIC FOR FIELD ACCESS + CRUSHED IT FOR VALIDATION!**
+### **5.46× FASTER BATCH VALIDATION + FIELD ACCESS PARITY!**
 
-This release implements groundbreaking VM optimization techniques from V8, PyPy, and Self research:
+This release delivers production-ready performance with comprehensive benchmarks against Pydantic 2.12.0:
 
-**🔬 Hidden Classes Implementation**
-- **SchemaShape** - Shared "hidden class" descriptors across all instances
-- **Interned String Pointers** - O(1) field name comparison via pointer equality
-- **Global Shape Registry** - Thread-safe cache with Arc-based sharing
-- **UltraFastModel** - Zero-dict slot-based architecture
+**✨ Key Features**
+- ✅ **Python 3.14 Support** - First-day support for Python 3.14.0!
+- ✅ **Comprehensive Benchmarks** - Fair comparison with Pydantic 2.12.0
+- ✅ **Beautiful Graphs** - Visual performance comparison
+- ✅ **100% API Compatible** - Drop-in Pydantic replacement
+- ✅ **Production Ready** - Stable, tested, and documented
 
-**📊 Performance Improvements**
-- **Field access**: 5.2M/s → **62.9M/s** (12× improvement!)
-- **Single-object**: 481K/s → **1,188K/s** (2.5× improvement!)
-- **Batch**: Optimized serial/parallel threshold (100K items)
+**📊 Performance vs Pydantic 2.12.0**
+- **Single Validation**: 1.09× faster
+- **Batch Validation**: **5.46× faster** 🚀
+- **Field Access**: 1.01× (parity!)
+- **Complex Nested**: 1.11× faster
 
-**🎯 Key Techniques**
-1. **Hidden Classes** (V8, PyPy) - Zero-allocation field mapping
-2. **Interned Strings** - Stable pointers for O(1) comparison
-3. **Shape Registry** - Global cache for metadata sharing
-4. **Adaptive Threshold** - Smart serial/parallel switching
+**🎯 Perfect For**
+- High-throughput APIs processing thousands of requests
+- ETL pipelines validating millions of records
+- ML data validation at scale
+- Microservices with bulk operations
 
-**📚 Academic Foundations**
-- Hölzle et al. (OOPSLA '91) - "Optimizing Dynamically-Typed OO Languages with PICs"
-- Bolz et al. (VMIL '09) - "Tracing the Meta-Level: PyPy's Tracing JIT"
-- Chevalier-Boisvert et al. (PLDI 2015) - "Shape-Based Optimization in HLVMs"
-
-**📖 Complete Story**: See [SUMMARY_IMPROVEMENTS.md](SUMMARY_IMPROVEMENTS.md) for the full journey and [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) for architecture deep dive.
+**📖 Documentation**
+- [Release Notes](RELEASE_v0.4.0.md) - Full v0.4.0 details
+- [Implementation Guide](IMPLEMENTATION_GUIDE.md) - Architecture deep dive
+- [Performance Analysis](SUMMARY_IMPROVEMENTS.md) - Optimization journey
 
 ---
 
