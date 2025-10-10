@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "satya"
-version = "0.4.1"
+version = "0.4.11"
 description = "THE FASTEST Python validation library - 1.90× faster than Pydantic, with 100% API compatibility!"
 authors = [{ name = "Rach Pradhan" }]
 readme = { file = "README.md", content-type = "text/markdown" }

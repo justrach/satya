@@ -1,6 +1,6 @@
 [package]
 name = "satya"
-version = "0.4.1"
+version = "0.4.11"
 edition = "2021"
 authors = ["Rach Pradhan"]
 description = "THE FASTEST Python validation library - 1.90× faster than Pydantic, 100% API compatible"
