@@ -10,11 +10,27 @@ use once_cell::sync::Lazy;  // For lazy static regex compilation
 mod compiled_validator;
 use compiled_validator::BlazeCompiledValidator;
 
+mod model_validator;
+use model_validator::BlazeModelValidator;
+
+mod blaze_validator;
+use blaze_validator::BlazeValidatorPy;
+
+mod native_validator;
+use native_validator::{NativeValidatorPy, NativeModelInstance};
+
 mod native_model;
 use native_model::{NativeModel, hydrate_one, hydrate_batch, hydrate_batch_parallel};
 
 mod fast_model;
 use fast_model::{UltraFastModel, hydrate_one_ultra_fast, hydrate_batch_ultra_fast, hydrate_batch_ultra_fast_parallel};
+
+mod field_value;
+mod schema_compiler;
+mod satya_model_instance;
+
+use satya_model_instance::{SatyaModelInstance, compile_schema, validate_batch_native, validate_batch_parallel};
+use schema_compiler::CompiledSchema;
 
 #[pyclass(name = "StreamValidatorCore")]
 struct StreamValidatorCore {
@@ -1005,6 +1021,10 @@ fn json_value_to_py(py: Python<'_>, value: &JsonValue) -> PyResult<Py<PyAny>> {
 fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StreamValidatorCore>()?;
     m.add_class::<BlazeCompiledValidator>()?;
+    m.add_class::<BlazeModelValidator>()?;
+    m.add_class::<BlazeValidatorPy>()?;
+    m.add_class::<NativeValidatorPy>()?;
+    m.add_class::<NativeModelInstance>()?;
     m.add_class::<NativeModel>()?;
     m.add_function(wrap_pyfunction!(hydrate_one, m)?)?;
     m.add_function(wrap_pyfunction!(hydrate_batch, m)?)?;
@@ -1015,6 +1035,13 @@ fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hydrate_one_ultra_fast, m)?)?;
     m.add_function(wrap_pyfunction!(hydrate_batch_ultra_fast, m)?)?;
     m.add_function(wrap_pyfunction!(hydrate_batch_ultra_fast_parallel, m)?)?;
+    
+    // Rust-native model architecture (v2.0)
+    m.add_class::<SatyaModelInstance>()?;
+    m.add_class::<CompiledSchema>()?;
+    m.add_function(wrap_pyfunction!(compile_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_batch_native, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_batch_parallel, m)?)?;
     
     Ok(())
 }
