@@ -52,28 +52,26 @@ class RustModel(metaclass=RustModelMeta):
     _is_rust_native = False
     
     def __init__(self, **kwargs):
-        """Initialize model with Rust validation"""
-        if not self._is_rust_native:
-            raise RuntimeError(f"{self.__class__.__name__} is not Rust-native")
-        
-        # Create Rust instance with validation
-        self._rust_instance = SatyaModelInstance.from_dict(self._rust_schema, kwargs)
+        """Initialize model with Rust validation (optimized)"""
+        # Direct creation - schema is already compiled at class creation time
+        # No need to check _is_rust_native every time (it's a class attribute)
+        object.__setattr__(self, '_rust_instance', 
+                          SatyaModelInstance.from_dict(self._rust_schema, kwargs))
     
     def __getattribute__(self, name: str) -> Any:
-        """Get field value from Rust instance (optimized)"""
-        # Fast path for internal attributes
-        if name.startswith('_'):
+        """Get field value from Rust instance (highly optimized)"""
+        # Ultra-fast path for internal attributes (single character check)
+        if name[0] == '_':
             return object.__getattribute__(self, name)
         
-        # Fast path for methods (check once, cache result)
-        if name in ('dict', 'json', 'from_dict', 'validate', '__class__', '__dict__'):
+        # Fast path for common methods
+        if name == 'dict' or name == 'json':
             return object.__getattribute__(self, name)
         
-        # Try to get from Rust instance (this is the hot path)
+        # Hot path: direct Rust field access
+        # Inline the rust_instance lookup to avoid function call overhead
         try:
-            rust_instance = object.__getattribute__(self, '_rust_instance')
-            # Direct call to avoid Python overhead
-            return rust_instance.get_field(name)
+            return object.__getattribute__(self, '_rust_instance').get_field(name)
         except (AttributeError, KeyError):
             # Fall back to class attributes (rare)
             return object.__getattribute__(self, name)

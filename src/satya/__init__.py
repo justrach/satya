@@ -1,5 +1,5 @@
 # Configuration flag for string representation
-from typing import Any, Dict, Literal, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern, Set
+from typing import Any, Dict, Literal, Optional, Type, Union, Iterator, List, TypeVar, Generic, get_args, get_origin, ClassVar, Pattern, Set, Callable
 from dataclasses import dataclass
 from itertools import islice
 from .json_loader import load_json  # Import the new JSON loader
@@ -92,7 +92,7 @@ class FieldConfig:
     description: Optional[str] = None
 
 class Field:
-    """Field definition with validation rules"""
+    """Field definition with validation rules - Pydantic compatible"""
     def __init__(
         self,
         type_: Type = None,
@@ -109,9 +109,9 @@ class Field:
         lt: Optional[int] = None,
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
-        multiple_of: Optional[Union[int, float]] = None,  # NEW: Pydantic compatibility
-        max_digits: Optional[int] = None,  # NEW: For Decimal
-        decimal_places: Optional[int] = None,  # NEW: For Decimal
+        multiple_of: Optional[Union[int, float]] = None,
+        max_digits: Optional[int] = None,
+        decimal_places: Optional[int] = None,
         min_items: Optional[int] = None,
         max_items: Optional[int] = None,
         unique_items: bool = False,
@@ -119,12 +119,21 @@ class Field:
         description: Optional[str] = None,
         example: Optional[Any] = None,
         default: Any = None,
+        # Pydantic compatibility - factory functions
+        default_factory: Optional[Callable[[], Any]] = None,
         # String transformations (Pydantic compatibility)
-        strip_whitespace: bool = False,  # NEW
-        to_lower: bool = False,  # NEW
-        to_upper: bool = False,  # NEW
+        strip_whitespace: bool = False,
+        to_lower: bool = False,
+        to_upper: bool = False,
         # Pydantic V2 compatibility
-        alias: Optional[str] = None,  # NEW: Field alias
+        alias: Optional[str] = None,
+        title: Optional[str] = None,
+        # Pydantic validation modes
+        frozen: bool = False,
+        validate_default: bool = False,
+        repr: bool = True,
+        init_var: bool = False,
+        kw_only: bool = False,
     ):
         self.type = type_
         self.required = required
@@ -149,10 +158,24 @@ class Field:
         self.description = description
         self.example = example
         self.default = default
+        self.default_factory = default_factory
         self.strip_whitespace = strip_whitespace
         self.to_lower = to_lower
         self.to_upper = to_upper
         self.alias = alias
+        self.title = title
+        self.frozen = frozen
+        self.validate_default = validate_default
+        self.repr = repr
+        self.init_var = init_var
+        self.kw_only = kw_only
+    
+    @property
+    def enum_values(self) -> Optional[List[str]]:
+        """Convert enum to list of strings for validator"""
+        if self.enum:
+            return [str(v) for v in self.enum]
+        return None
 
     def json_schema(self) -> Dict[str, Any]:
         """Generate JSON schema for this field"""
@@ -216,6 +239,11 @@ class ModelMetaclass(type):
             if not isinstance(field_def, Field):
                 # If a default value is provided directly on the class, wrap it in Field(default=...)
                 field_def = Field(default=field_def)
+            
+            # Handle Pydantic-style Field(...) where ... means required
+            if field_def.type is ...:
+                field_def.type = None
+                field_def.required = True
                 
             if field_def.type is None:
                 field_def.type = field_type
@@ -226,11 +254,17 @@ class ModelMetaclass(type):
             if origin is Union and type(None) in args:
                 field_def.required = False
             
-            # If a default value is present (including default=None), the field is not required
-            if getattr(field_def, 'default', None) is not None or (field_name in namespace and not isinstance(namespace.get(field_name), Field)):
+            # If a default value or default_factory is present, the field is not required
+            if getattr(field_def, 'default', None) is not None or getattr(field_def, 'default_factory', None) is not None or (field_name in namespace and not isinstance(namespace.get(field_name), Field)):
                 field_def.required = False
                 
             fields[field_name] = field_def
+            
+            # CRITICAL FIX: Remove Field objects from class namespace to prevent them
+            # from shadowing instance attribute access. This ensures __getattr__ is called
+            # and returns the actual value from _data instead of the Field descriptor.
+            if field_name in namespace:
+                del namespace[field_name]
             
         namespace['__fields__'] = fields
         # Default, Pydantic-like config
@@ -311,16 +345,48 @@ class Model(metaclass=ModelMetaclass):
         # PYDANTIC-EXACT: Minimal overhead!
         __tracebackhide__ = True
         
-        # Get cached validator core
-        core = self.__class__.__satya_validator_core__
-        if core is None:
+        # Get cached validator
+        validator = self.__class__.__satya_validator_core__
+        if validator is None:
             # Lazy initialization on first use
             validator = self.__class__.validator()
-            core = validator
-            self.__class__.__satya_validator_core__ = core
+            self.__class__.__satya_validator_core__ = validator
         
-        # BLAZE-STYLE: Validate in Rust, return dict
-        validated_dict = core.validate_fast(data)
+        # Pre-process: Convert Model instances to dicts for validation
+        processed_data = {}
+        for key, value in data.items():
+            if isinstance(value, Model):
+                processed_data[key] = value._data
+            else:
+                processed_data[key] = value
+        
+        # Validate the data
+        result = validator.validate(processed_data)
+        if not result.is_valid:
+            raise ModelValidationError(result.errors)
+        validated_dict = result.value
+        
+        # Apply default values for fields not provided in data
+        for name, field in self.__fields__.items():
+            if name not in validated_dict:
+                # Handle default_factory (Pydantic compatibility)
+                if field.default_factory is not None:
+                    validated_dict[name] = field.default_factory()
+                elif field.default is not None:
+                    # Deep copy mutable defaults to avoid shared references
+                    if isinstance(field.default, (list, dict, set)):
+                        import copy
+                        validated_dict[name] = copy.deepcopy(field.default)
+                    else:
+                        validated_dict[name] = field.default
+        
+        # Convert floats back to Decimal for Decimal fields
+        from decimal import Decimal
+        for name, field in self.__fields__.items():
+            if field.type is Decimal and name in validated_dict:
+                value = validated_dict[name]
+                if isinstance(value, (int, float)) and not isinstance(value, Decimal):
+                    validated_dict[name] = Decimal(str(value))
         
         # CRITICAL OPTIMIZATION: Set _data to validated_dict DIRECTLY!
         # This avoids copying dict items one by one
@@ -328,11 +394,26 @@ class Model(metaclass=ModelMetaclass):
         object.__setattr__(self, '_errors', [])
         
         # OPTIMIZATION: Only process nested models if they exist
-        # Post-process: Convert nested dicts to Model instances
+        # Post-process: Convert nested dicts to Model instances and validate list constraints
         for name, field in self.__fields__.items():
             value = validated_dict.get(name)
             if value is None:
                 continue
+            
+            # Check list constraints (min_items, max_items, unique_items)
+            if isinstance(value, list):
+                if field.min_items is not None and len(value) < field.min_items:
+                    raise ModelValidationError([
+                        ValidationError(field=name, message=f"Array must have at least {field.min_items} items", path=[name])
+                    ])
+                if field.max_items is not None and len(value) > field.max_items:
+                    raise ModelValidationError([
+                        ValidationError(field=name, message=f"Array must have at most {field.max_items} items", path=[name])
+                    ])
+                if field.unique_items and len(set(str(v) for v in value)) != len(value):
+                    raise ModelValidationError([
+                        ValidationError(field=name, message="Array items must be unique", path=[name])
+                    ])
                 
             field_type = field.type
             if field_type is None:
@@ -360,8 +441,17 @@ class Model(metaclass=ModelMetaclass):
                     if isinstance(inner_type, type) and issubclass(inner_type, Model) and isinstance(value, list):
                         value = [inner_type(**v) if isinstance(v, dict) else v for v in value]
                         validated_dict[name] = value
+                # Convert Dict[str, Model]
+                elif origin is dict and len(args) >= 2:
+                    value_type = args[1]
+                    if isinstance(value_type, type) and issubclass(value_type, Model) and isinstance(value, dict):
+                        value = {k: value_type(**v) if isinstance(v, dict) else v for k, v in value.items()}
+                        validated_dict[name] = value
+            except ModelValidationError:
+                # Re-raise validation errors from nested models
+                raise
             except Exception:
-                # Nested model conversion failed - skip this field
+                # Other errors - skip this field
                 pass
     
     def __str__(self):
@@ -434,52 +524,77 @@ class Model(metaclass=ModelMetaclass):
         
     @classmethod
     def validator(cls) -> 'StreamValidator':
-        """Create a validator for this model"""
+        """Create a validator for this model - BLAZE OPTIMIZED!"""
         if cls._validator_instance is None:
-            # Try to use optimized native validator first
-            from .native_validator import create_optimized_validator, has_constraints
-            
-            # Build schema info for optimizer
-            schema_info = {}
-            for field_name, field in cls.__fields__.items():
-                schema_info[field_name] = {
-                    'type': field.type,
-                    'required': field.required,  # CRITICAL: Include required flag!
-                    'min_length': field.min_length,
-                    'max_length': field.max_length,
-                    'pattern': field.pattern,
-                    'email': field.email,
-                    'url': field.url,
-                    'ge': field.ge,
-                    'le': field.le,
-                    'gt': field.gt,
-                    'lt': field.lt,
-                    'min_value': field.min_value,
-                    'max_value': field.max_value,
-                    'min_items': field.min_items,
-                    'max_items': field.max_items,
-                    'unique_items': field.unique_items,
-                    'enum': getattr(field, 'enum', None),
-                }
-            
-            # BLAZE-STYLE: Compile schema into optimized Rust validator!
-            from ._satya import BlazeCompiledValidator
-            validator = BlazeCompiledValidator()
-            
-            # Compile schema: (field_name, type_str, required)
-            schema = []
-            for field_name, field in cls.__fields__.items():
-                type_str = 'str' if field.type == str else \
-                          'int' if field.type == int else \
-                          'float' if field.type == float else \
-                          'bool' if field.type == bool else \
-                          'list' if getattr(field.type, '__origin__', None) == list else \
-                          'dict' if getattr(field.type, '__origin__', None) == dict else \
-                          'any'
-                schema.append((field_name, type_str, field.required))
-            
-            validator.compile_schema(schema)
-            cls._validator_instance = validator
+            try:
+                from ._satya import BlazeValidatorPy
+                from .validator import StreamValidator
+                from decimal import Decimal
+                
+                # Create the BLAZE-optimized validator (zero-copy, semi-perfect hashing)
+                blaze = BlazeValidatorPy()
+                
+                # Add all fields
+                for field_name, field in cls.__fields__.items():
+                    # Unwrap Optional[T] to get the actual type
+                    field_type = field.type
+                    origin = get_origin(field_type)
+                    if origin is Union:
+                        args = get_args(field_type)
+                        non_none = [a for a in args if a is not type(None)]
+                        if non_none:
+                            field_type = non_none[0]
+                    
+                    # Get the type string
+                    type_str = 'str' if field_type == str else \
+                              'int' if field_type == int else \
+                              'float' if field_type == float else \
+                              'bool' if field_type == bool else \
+                              'list' if get_origin(field_type) == list else \
+                              'dict' if get_origin(field_type) == dict else \
+                              'decimal' if field_type is Decimal else \
+                              'any'
+                    
+                    blaze.add_field(field_name, type_str, field.required)
+                
+                # Set all constraints (ALL IN RUST NOW!)
+                for field_name, field in cls.__fields__.items():
+                    # Use ge/le if available, otherwise fall back to min_value/max_value
+                    ge_val = field.ge if field.ge is not None else field.min_value
+                    le_val = field.le if field.le is not None else field.max_value
+                    
+                    blaze.set_constraints(
+                        field_name,
+                        float(field.gt) if field.gt is not None else None,
+                        float(ge_val) if ge_val is not None else None,
+                        float(field.lt) if field.lt is not None else None,
+                        float(le_val) if le_val is not None else None,
+                        field.min_length,
+                        field.max_length,
+                        field.pattern,
+                        field.email if hasattr(field, 'email') else False,
+                        field.url if hasattr(field, 'url') else False,
+                        field.enum_values if hasattr(field, 'enum_values') else None,
+                        field.min_items,
+                        field.max_items,
+                        field.unique_items if hasattr(field, 'unique_items') else False,
+                    )
+                
+                # Compile with BLAZE optimizations!
+                blaze.compile()
+                
+                # Wrap in StreamValidator for compatibility
+                validator = StreamValidator()
+                _register_model(validator, cls)
+                validator._blaze_validator = blaze  # Use the new BLAZE validator
+                
+                cls._validator_instance = validator
+            except Exception as e:
+                # Fallback to StreamValidator only
+                from .validator import StreamValidator
+                validator = StreamValidator()
+                _register_model(validator, cls)
+                cls._validator_instance = validator
         
         return cls._validator_instance
     
@@ -536,8 +651,11 @@ class Model(metaclass=ModelMetaclass):
         # Get the compiled validator
         validator = cls.validator()
         
-        # Validate in Rust (super fast!)
-        validated_dict = validator.validate_fast(data)
+        # Validate the data
+        result = validator.validate(data)
+        if not result.is_valid:
+            raise ModelValidationError(result.errors)
+        validated_dict = result.value
         
         # Hydrate to UltraFastModel with shape-based slots - bypasses __init__!
         # Uses Hidden Classes technique with interned strings for 6× faster field access
@@ -567,8 +685,13 @@ class Model(metaclass=ModelMetaclass):
         # Get the compiled validator
         validator = cls.validator()
         
-        # Batch validate in Rust (parallel, super fast!)
-        validated_dicts = validator.validate_batch(data_list)
+        # Batch validate - validate each item
+        validated_dicts = []
+        for data in data_list:
+            result = validator.validate(data)
+            if not result.is_valid:
+                raise ModelValidationError(result.errors)
+            validated_dicts.append(result.value)
         
         # Hydrate to UltraFastModels with shared shapes (parallel!)
         # Uses Hidden Classes technique: one shape shared by ALL instances
@@ -1150,22 +1273,8 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
             origin = get_origin(unwrapped_type)
             args = get_args(unwrapped_type) if origin is not None else ()
             
-            # Skip List[Model] fields
-            if origin is list and args:
-                inner_type = args[0]
-                if isinstance(inner_type, type) and issubclass(inner_type, Model):
-                    # For List[Model] fields, skip validator registration
-                    # Validation happens entirely in Python during model construction
-                    continue
-            
-            # Skip Dict[str, Model] fields
-            if origin is dict and len(args) >= 2:
-                key_type, value_type = args[0], args[1]
-                if isinstance(value_type, type) and issubclass(value_type, Model):
-                    # For Dict[str, Model] fields, skip validator registration
-                    # Validation happens entirely in Python during model construction
-                    continue
-                    
+            # Register all fields (including List[Model] and Dict[str, Model])
+            # The validator will handle nested model validation in Python layer
             validator.add_field(name, field_type, required=field.required)
             # Propagate constraints to the core
             enum_values = None
@@ -1174,39 +1283,19 @@ def _register_model(validator: 'StreamValidator', model: Type[Model], path: List
             if field.enum and type_name == 'str':
                 enum_values = [str(v) for v in field.enum]
 
-            # Prepare constraints safely for the core (avoid passing float to int-only slots)
-            ge_val = field.ge
-            le_val = field.le
-            gt_val = field.gt
-            lt_val = field.lt
-            min_val = field.min_value
-            max_val = field.max_value
-
-            if type_name == 'float':
-                # Route inclusive bounds through min_value/max_value, skip int-only exclusive slots
-                if ge_val is not None:
-                    min_val = float(ge_val) if min_val is None else max(float(ge_val), float(min_val))
-                    ge_val = None
-                if le_val is not None:
-                    max_val = float(le_val) if max_val is None else min(float(le_val), float(max_val))
-                    le_val = None
-                # Skip gt/lt for core; enforce in Python layer
-                gt_val = None
-                lt_val = None
-
-            # Build constraints and filter to parameters supported by validator.set_constraints
+            # Build constraints - keep all constraints for Python-side validation
             _kwargs = {
                 'min_length': field.min_length,
                 'max_length': field.max_length,
-                'min_value': min_val,
-                'max_value': max_val,
+                'min_value': field.min_value,
+                'max_value': field.max_value,
                 'pattern': field.pattern,
                 'email': field.email,
                 'url': field.url,
-                'ge': ge_val,
-                'le': le_val,
-                'gt': gt_val,
-                'lt': lt_val,
+                'ge': field.ge,
+                'le': field.le,
+                'gt': field.gt,
+                'lt': field.lt,
                 'min_items': field.min_items,
                 'max_items': field.max_items,
                 'unique_items': field.unique_items,

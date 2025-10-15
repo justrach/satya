@@ -14,6 +14,18 @@ pub struct CompiledField {
     pub field_type: CompiledFieldType,
     pub required: bool,
     pub check_order: usize, // For instruction reordering
+    // Numeric constraints
+    pub gt: Option<f64>,
+    pub ge: Option<f64>,
+    pub lt: Option<f64>,
+    pub le: Option<f64>,
+    // String constraints
+    pub min_length: Option<usize>,
+    pub max_length: Option<usize>,
+    pub pattern: Option<String>,
+    // List constraints
+    pub min_items: Option<usize>,
+    pub max_items: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +69,15 @@ impl CompiledValidator {
                 field_type,
                 required: *required,
                 check_order: idx,
+                gt: None,
+                ge: None,
+                lt: None,
+                le: None,
+                min_length: None,
+                max_length: None,
+                pattern: None,
+                min_items: None,
+                max_items: None,
             });
             
             field_indices.insert(name.clone(), idx);
@@ -74,6 +95,12 @@ impl CompiledValidator {
                 CompiledFieldType::Any => 6,    // Slowest
             }
         });
+        
+        // CRITICAL: Rebuild field_indices after sorting!
+        field_indices.clear();
+        for (idx, field) in fields.iter().enumerate() {
+            field_indices.insert(field.name.clone(), idx);
+        }
         
         let field_count = fields.len();
         
@@ -148,6 +175,89 @@ impl CompiledValidator {
                     ));
                 }
                 
+                // Validate constraints based on type
+                match field.field_type {
+                    CompiledFieldType::Int | CompiledFieldType::Float => {
+                        if let Ok(num_val) = value.extract::<f64>() {
+                            if let Some(gt) = field.gt {
+                                if num_val <= gt {
+                                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                        format!("Field '{}' must be > {}", field.name, gt)
+                                    ));
+                                }
+                            }
+                            if let Some(ge) = field.ge {
+                                if num_val < ge {
+                                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                        format!("Field '{}' must be >= {}", field.name, ge)
+                                    ));
+                                }
+                            }
+                            if let Some(lt) = field.lt {
+                                if num_val >= lt {
+                                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                        format!("Field '{}' must be < {}", field.name, lt)
+                                    ));
+                                }
+                            }
+                            if let Some(le) = field.le {
+                                if num_val > le {
+                                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                        format!("Field '{}' must be <= {}", field.name, le)
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    CompiledFieldType::String => {
+                        // Extract string value for constraint validation
+                        let str_val = value.extract::<String>().map_err(|_| {
+                            PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                format!("Field '{}' must be a string", field.name)
+                            )
+                        })?;
+                        
+                        // For min_length, check trimmed string (matches Python behavior)
+                        if let Some(min_len) = field.min_length {
+                            let trimmed_len = str_val.trim().len();
+                            if trimmed_len < min_len {
+                                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                    format!("Field '{}' must have at least {} characters", field.name, min_len)
+                                ));
+                            }
+                        }
+                        // For max_length, check original string (matches Python behavior)
+                        if let Some(max_len) = field.max_length {
+                            if str_val.len() > max_len {
+                                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                    format!("Field '{}' must have at most {} characters", field.name, max_len)
+                                ));
+                            }
+                        }
+                        // Pattern validation would go here (requires regex crate)
+                    }
+                    CompiledFieldType::List => {
+                        if let Ok(list) = value.downcast::<PyList>() {
+                            let len = list.len();
+                            if let Some(min_items) = field.min_items {
+                                if len < min_items {
+                                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                        format!("Field '{}' must have at least {} items", field.name, min_items)
+                                    ));
+                                }
+                            }
+                            if let Some(max_items) = field.max_items {
+                                if len > max_items {
+                                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                                        format!("Field '{}' must have at most {} items", field.name, max_items)
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                
                 validated.set_item(&field.name, &value)?;
             }
             None if field.required => {
@@ -178,6 +288,39 @@ impl BlazeCompiledValidator {
     
     fn compile_schema(&mut self, schema: Vec<(String, String, bool)>) {
         self.0 = CompiledValidator::compile(schema);
+    }
+    
+    /// Set constraints for a specific field
+    fn set_field_constraints(
+        &mut self,
+        field_name: String,
+        gt: Option<f64>,
+        ge: Option<f64>,
+        lt: Option<f64>,
+        le: Option<f64>,
+        min_length: Option<usize>,
+        max_length: Option<usize>,
+        pattern: Option<String>,
+        min_items: Option<usize>,
+        max_items: Option<usize>,
+    ) -> PyResult<()> {
+        if let Some(idx) = self.0.field_indices.get(&field_name) {
+            if let Some(field) = self.0.fields.get_mut(*idx) {
+                field.gt = gt;
+                field.ge = ge;
+                field.lt = lt;
+                field.le = le;
+                field.min_length = min_length;
+                field.max_length = max_length;
+                field.pattern = pattern;
+                field.min_items = min_items;
+                field.max_items = max_items;
+                return Ok(());
+            }
+        }
+        Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
+            format!("Field '{}' not found", field_name)
+        ))
     }
     
     fn validate_fast(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {

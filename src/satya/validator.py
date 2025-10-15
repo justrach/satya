@@ -126,6 +126,14 @@ class StreamValidator:
         })
         # Do not pass pattern to core; enforce locally to avoid cross-engine regex differences
         core_pattern = None
+        
+        # Only pass integer constraints to core (Rust expects integers)
+        # Float constraints are enforced in Python layer
+        core_ge = int(ge) if ge is not None and isinstance(ge, (int, float)) and ge == int(ge) else None
+        core_le = int(le) if le is not None and isinstance(le, (int, float)) and le == int(le) else None
+        core_gt = int(gt) if gt is not None and isinstance(gt, (int, float)) and gt == int(gt) else None
+        core_lt = int(lt) if lt is not None and isinstance(lt, (int, float)) and lt == int(lt) else None
+        
         return self._core.set_field_constraints(
             field_name,
             min_length,
@@ -135,10 +143,10 @@ class StreamValidator:
             core_pattern,
             email,
             url,
-            ge,
-            le,
-            gt,
-            lt,
+            core_ge,
+            core_le,
+            core_gt,
+            core_lt,
             min_items,
             max_items,
             unique_items,
@@ -174,6 +182,36 @@ class StreamValidator:
     def validate(self, item: dict) -> ValidationResult:
         """Validate a single item and return a ValidationResult with optional error details."""
         try:
+            # OPTIMIZATION: Use BLAZE validator (ZERO-COPY, SEMI-PERFECT HASHING!)
+            if hasattr(self, '_blaze_validator'):
+                try:
+                    validated = self._blaze_validator.validate(item)
+                    # Still need to validate nested models (TODO: move to Rust)
+                    validated = self._validate_nested_models(validated)
+                    return ValidationResult(value=validated)
+                except Exception as e:
+                    # Validation failed in Rust
+                    return ValidationResult(errors=[ValidationError(field="root", message=str(e), path=[])])
+            
+            # FALLBACK: Use old BlazeModelValidator if available
+            if hasattr(self, '_blaze_model_validator'):
+                try:
+                    validated = self._blaze_model_validator.validate(item)
+                    validated = self._validate_nested_models(validated)
+                    return ValidationResult(value=validated)
+                except Exception as e:
+                    return ValidationResult(errors=[ValidationError(field="root", message=str(e), path=[])])
+            
+            # FALLBACK: Use old Blaze fast path if available
+            if hasattr(self, '_blaze_fast_path') and not self._has_complex_constraints():
+                try:
+                    validated = self._blaze_fast_path.validate_fast(item)
+                    validated = self._validate_nested_models(validated)
+                    return ValidationResult(value=validated)
+                except Exception:
+                    # Fall through to full validation
+                    pass
+            
             # Apply light, best-effort coercions before sending to core
             coerced = self._coerce_item(item)
             # Apply Python-side simple constraints that are reliable locally and accumulate errors
@@ -206,15 +244,15 @@ class StreamValidator:
                         if _re.match(r"^https?://[A-Za-z0-9.-]+(?::\d+)?(?:/[^\s]*)?$", v) is None:
                             py_errors.append(ValidationError(field=fname, message="Invalid URL format", path=[fname]))
 
-                # Integers: ge/le/gt/lt
-                if isinstance(v, int) and not isinstance(v, bool):
-                    if cons.get("ge") is not None and v < int(cons["ge"]):
+                # Integers and Floats: ge/le/gt/lt
+                if (isinstance(v, (int, float)) and not isinstance(v, bool)):
+                    if cons.get("ge") is not None and v < float(cons["ge"]):
                         py_errors.append(ValidationError(field=fname, message=f"Value must be >= {cons['ge']}", path=[fname]))
-                    if cons.get("le") is not None and v > int(cons["le"]):
+                    if cons.get("le") is not None and v > float(cons["le"]):
                         py_errors.append(ValidationError(field=fname, message=f"Value must be <= {cons['le']}", path=[fname]))
-                    if cons.get("gt") is not None and v <= int(cons["gt"]):
+                    if cons.get("gt") is not None and v <= float(cons["gt"]):
                         py_errors.append(ValidationError(field=fname, message=f"Value must be > {cons['gt']}", path=[fname]))
-                    if cons.get("lt") is not None and v >= int(cons["lt"]):
+                    if cons.get("lt") is not None and v >= float(cons["lt"]):
                         py_errors.append(ValidationError(field=fname, message=f"Value must be < {cons['lt']}", path=[fname]))
 
                 # Lists: min_items/max_items/unique_items
@@ -238,11 +276,102 @@ class StreamValidator:
 
             ok = self._core.validate_item_internal(coerced)
             if ok:
-                return ValidationResult(value=coerced)
+                # Validate nested models if any
+                try:
+                    validated = self._validate_nested_models(coerced)
+                    return ValidationResult(value=validated)
+                except ValueError as e:
+                    # Nested model validation failed
+                    return ValidationResult(errors=[ValidationError(field="root", message=str(e), path=[])])
             # Fallback (should not happen since core returns True or raises)
             return ValidationResult(errors=[ValidationError(field="root", message="validation failed", path=[])])
         except Exception as e:  # Capture PyErr from core
             return ValidationResult(errors=[ValidationError(field="root", message=str(e), path=[])])
+
+    def _has_complex_constraints(self) -> bool:
+        """Check if we have constraints that require Python validation (Rust can't handle)"""
+        from decimal import Decimal
+        
+        # Check if we have Decimal fields (need special Python handling)
+        for field_type in self._root_types.values():
+            if field_type is Decimal:
+                return True
+        
+        # Check for constraints that Rust can't handle yet
+        # Rust NOW handles: gt, ge, lt, le, min_length, max_length, min_items, max_items
+        # Python still handles: pattern (regex), email, url, enum
+        for cons in self._constraints.values():
+            if cons.get('pattern') or cons.get('email') or cons.get('url') or cons.get('enum_values'):
+                return True
+        
+        # All other constraints are handled in Rust!
+        return False
+    
+    def _validate_nested_models(self, item: dict) -> dict:
+        """Recursively validate nested models in the item."""
+        from . import Model
+        from typing import get_origin, get_args
+        
+        validated_item = item.copy()
+        
+        for field_name, field_type in self._root_types.items():
+            if field_name not in item:
+                continue
+            
+            value = item[field_name]
+            
+            # Unwrap Optional[T]
+            origin = get_origin(field_type)
+            args = get_args(field_type) if origin is not None else ()
+            if origin is Union and type(None) in args:
+                non_none = [a for a in args if a is not type(None)]
+                field_type = non_none[0] if non_none else field_type
+                origin = get_origin(field_type)
+                args = get_args(field_type) if origin is not None else ()
+            
+            # Handle List[Model]
+            if origin is list and args:
+                inner_type = args[0]
+                if isinstance(inner_type, type) and issubclass(inner_type, Model):
+                    if isinstance(value, list):
+                        # Validate each item in the list
+                        validated_list = []
+                        for i, item_data in enumerate(value):
+                            if isinstance(item_data, dict):
+                                # Create model instance (which validates)
+                                try:
+                                    validated_list.append(inner_type(**item_data))
+                                except Exception as e:
+                                    raise ValueError(f"Invalid item at index {i} in field '{field_name}': {e}")
+                            else:
+                                validated_list.append(item_data)
+                        validated_item[field_name] = validated_list
+            
+            # Handle Dict[str, Model]
+            elif origin is dict and len(args) >= 2:
+                value_type = args[1]
+                if isinstance(value_type, type) and issubclass(value_type, Model):
+                    if isinstance(value, dict):
+                        validated_dict = {}
+                        for k, v in value.items():
+                            if isinstance(v, dict):
+                                try:
+                                    validated_dict[k] = value_type(**v)
+                                except Exception as e:
+                                    raise ValueError(f"Invalid value for key '{k}' in field '{field_name}': {e}")
+                            else:
+                                validated_dict[k] = v
+                        validated_item[field_name] = validated_dict
+            
+            # Handle direct Model
+            elif isinstance(field_type, type) and issubclass(field_type, Model):
+                if isinstance(value, dict):
+                    try:
+                        validated_item[field_name] = field_type(**value)
+                    except Exception as e:
+                        raise ValueError(f"Invalid nested model in field '{field_name}': {e}")
+        
+        return validated_item
 
     def validate_stream(self, items: Iterable[dict], collect_errors: bool = False, *, yield_values: bool = False) -> Iterator[Any]:
         """Validate a stream of items.
@@ -494,13 +623,21 @@ class StreamValidator:
                         return value
                 return value
             if tp is Decimal:
+                # For Decimal, we need to:
+                # 1. Convert string/int/float to Decimal for Python layer
+                # 2. But send as float to Rust core (which doesn't understand Decimal objects)
                 if isinstance(value, (int, float)):
-                    return Decimal(str(value))
+                    # Already a number - convert to float for Rust core
+                    return float(value)
                 if isinstance(value, str):
                     try:
-                        return Decimal(value)
+                        # Parse string to Decimal, then convert to float for Rust
+                        return float(Decimal(value))
                     except Exception:
                         return value
+                if isinstance(value, Decimal):
+                    # Already a Decimal - convert to float for Rust core
+                    return float(value)
                 return value
             if tp is str:
                 if isinstance(value, (bytes, bytearray)):
