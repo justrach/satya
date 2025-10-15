@@ -20,6 +20,15 @@ class APIResponse(Model):
     page_size: int = Field(description="Number of items per page")
 
 def main():
+    """
+    This example demonstrates how to validate nested models with Satya.
+    
+    You can use either approach:
+    1. validator.validate(data) - Returns ValidationResult with errors
+    2. Model(**data) - Raises exception on validation failure
+    
+    Both approaches now properly validate nested models!
+    """
     # Sample JSON data (imagine this coming from an API request)
     json_data = {
         "success": True,
@@ -60,11 +69,11 @@ def main():
         print(f"Page Size: {result.value['page_size']}")
         print("\nUsers:")
         for user in result.value['data']:
-            print(f"\n- User ID: {user['id']}")
-            print(f"  Name: {user['name']}")
-            print(f"  Email: {user['email']}")
-            print(f"  Tags: {', '.join(user['tags'])}")
-            print(f"  Department: {user['metadata'].get('department', 'N/A')}")
+            print(f"\n- User ID: {user.id}")
+            print(f"  Name: {user.name}")
+            print(f"  Email: {user.email}")
+            print(f"  Tags: {', '.join(user.tags)}")
+            print(f"  Department: {user.metadata.get('department', 'N/A')}")
     else:
         print("❌ Validation failed!")
         for error in result.errors:
@@ -93,6 +102,26 @@ def main():
         print("❌ Validation failed (as expected)!")
         for error in result.errors:
             print(f"Error in field '{error.field}': {error.message}")
+    else:
+        print("⚠️  WARNING: Validation passed when it should have failed!")
+    
+    # Test with completely malformed data
+    print("\nTesting completely malformed data:")
+    malformed_json = {
+        "success": "not_a_bool",  # Should be bool
+        "data": "not_a_list",  # Should be list
+        "total_count": "not_an_int",  # Should be int
+        "page": -1,  # Should be positive
+        "page_size": 0  # Should be positive
+    }
+    
+    result = validator.validate(malformed_json)
+    if not result.is_valid:
+        print("❌ Validation failed (as expected)!")
+        for error in result.errors:
+            print(f"Error in field '{error.field}': {error.message}")
+    else:
+        print("⚠️  WARNING: Validation passed when it should have failed!")
 
 if __name__ == "__main__":
     main() 

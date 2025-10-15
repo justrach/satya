@@ -18,22 +18,77 @@
 
 Satya (सत्य) - Sanskrit for **"truth"** - delivers **blazing-fast validation** with **100% Pydantic-compatible API**. Built on Rust with PyO3, Satya achieves **5.46× faster batch validation** while maintaining **field access parity** with Pydantic.
 
+## 🎯 What's New in v0.4.12
+
+### ✨ **Critical DX Fixes & Pydantic Compatibility**
+
+**Issue #12 FIXED**: Field access now returns actual values, not Field objects!
+```python
+user.age + 5  # ✅ Works! (was TypeError before)
+user.name.upper()  # ✅ Works!
+if user.score > 90:  # ✅ Works!
+```
+
+**Issue #9 FIXED**: Full Pydantic `Field` compatibility!
+```python
+from satya import Model, Field
+from typing import List
+
+class User(Model):
+    tags: List[str] = Field(default_factory=list)  # ✅ Now supported!
+    created_at: datetime = Field(default_factory=datetime.now)
+```
+
+**Example #3 FIXED**: Nested model validation now works in `validator.validate()`!
+
+👉 **[See Full Changelog](CHANGELOG.md)** | **[Migration Guide](PYDANTIC_MIGRATION.md)**
+
 ## 📊 Performance vs Pydantic 2.12.0
 
 <p align="center">
   <img src="benchmarks/pydantic_comparison_graph.png" alt="Satya vs Pydantic Performance" width="100%"/>
 </p>
 
-### Benchmark Results (Pydantic 2.12.0)
+### Benchmark Results
 
-| Metric | Pydantic 2.12.0 | Satya 0.4.0 | Speedup |
+> **⚠️ IMPORTANT: v0.4.12 Performance Status**
+> 
+> This release **prioritizes correctness over speed**. We fixed critical bugs (Issues #9, #12) that made previous versions unusable in production. The trade-off is that **Pydantic is currently 5-20× faster** than Satya v0.4.12.
+
+**Current Performance (v0.4.12 vs Pydantic 2.12.0):**
+
+| Test | Satya v0.4.12 | Pydantic 2.12.0 | Winner |
+|------|---------------|-----------------|--------|
+| Simple Validation | 104K ops/sec | 1,844K ops/sec | Pydantic 17.7× faster |
+| With Constraints | 84K ops/sec | 1,736K ops/sec | Pydantic 20.6× faster |
+| Field Access | 11M ops/sec | 37M ops/sec | Pydantic 3.3× faster |
+| Batch (50K) | 162K ops/sec | 894K ops/sec | Pydantic 5.5× faster |
+| Nested Models | 59K ops/sec | 1,328K ops/sec | Pydantic 22.6× faster |
+
+**What You Get in v0.4.12:**
+- ✅ **Actually works** (field access, constraints, nested models all correct)
+- ✅ **100% Pydantic API compatibility** (including `default_factory`)
+- ✅ **291/291 tests passing** (previous versions had 73 failures)
+- ⚠️ **Slower than Pydantic** (but at least it works!)
+
+**The Trade-off:**
+- **v0.4.12**: Slow but CORRECT → **Use this for production**
+- **v0.3.x**: Fast but BROKEN → Don't use (field access returns Field objects!)
+
+**Future Plans (v0.5.0):**
+- Optimize validation path to match/exceed Pydantic speed
+- Keep all correctness fixes from v0.4.12
+- Goal: Best of both worlds (correct AND fast)
+
+**Previous Performance (v0.3.86 - before DX fixes):**
+
+| Metric | Pydantic 2.12.0 | Satya 0.3.86 | Speedup |
 |--------|-----------------|-------------|---------|
 | **Single Validation** | 1.02M ops/sec | 1.10M ops/sec | **1.09× faster** ⚡ |
 | **Batch Validation** | 915K ops/sec | **5.0M ops/sec** | **5.46× faster** 🚀 |
 | **Field Access** | 65.3M/sec | 66.2M/sec | **1.01× (parity!)** 🔥 |
-| **Complex Nested** | 917K ops/sec | 1.01M ops/sec | **1.11× faster** ✨ |
 
-> **Latest Version: v0.4.0** - Python 3.8-3.14 supported, including the brand new Python 3.14.0!
+> **Latest Version: v0.4.12** - Python 3.8-3.14 supported. **Production-ready** with correct behavior (but slower than Pydantic for now). 🎯
 
 ---
 
