@@ -109,24 +109,21 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-        target: [x86_64, aarch64]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Build wheels
+      - name: Build universal2 wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --out dist --universal2
           sccache: 'false'
-          universal2: ${{ matrix.target == 'aarch64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.python-version }}-${{ matrix.target }}
+          name: wheels-macos-${{ matrix.python-version }}-universal2
           path: dist
 
   sdist:
