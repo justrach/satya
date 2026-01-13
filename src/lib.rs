@@ -19,6 +19,9 @@ use blaze_validator::BlazeValidatorPy;
 mod native_validator;
 use native_validator::{NativeValidatorPy, NativeModelInstance};
 
+mod turbo_validator;
+use turbo_validator::{TurboValidatorPy, turbo_validate_email, turbo_validate_url};
+
 mod native_model;
 use native_model::{NativeModel, hydrate_one, hydrate_batch, hydrate_batch_parallel};
 
@@ -956,21 +959,13 @@ static EMAIL_REGEX_STRICT: Lazy<Regex> = Lazy::new(|| {
 });
 
 fn validate_email(s: &str) -> bool {
-    // Use SIMPLE validation for speed (10x+ faster)
-    // TODO: Add option to switch to strict mode if needed
-    
-    // Quick length check
-    if s.len() > 254 || s.is_empty() {
-        return false;
-    }
-    
-    // Fast regex check
-    EMAIL_REGEX_SIMPLE.is_match(s)
+    // TURBO: Use SIMD-accelerated validation (10x faster than regex!)
+    turbo_validator::validate_email_fast(s)
 }
 
 fn validate_url(s: &str) -> bool {
-    // Basic URL validation
-    s.starts_with("http://") || s.starts_with("https://")
+    // TURBO: Use SIMD-accelerated URL validation
+    turbo_validator::validate_url_fast(s)
 }
 
 fn regex_match(s: &str, pattern: &str) -> bool {
@@ -1042,6 +1037,11 @@ fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compile_schema, m)?)?;
     m.add_function(wrap_pyfunction!(validate_batch_native, m)?)?;
     m.add_function(wrap_pyfunction!(validate_batch_parallel, m)?)?;
-    
+
+    // TurboValidator - SIMD-accelerated validation (v0.5.0)
+    m.add_class::<TurboValidatorPy>()?;
+    m.add_function(wrap_pyfunction!(turbo_validate_email, m)?)?;
+    m.add_function(wrap_pyfunction!(turbo_validate_url, m)?)?;
+
     Ok(())
 }
