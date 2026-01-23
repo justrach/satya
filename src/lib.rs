@@ -28,6 +28,11 @@ use fast_model::{UltraFastModel, hydrate_one_ultra_fast, hydrate_batch_ultra_fas
 mod field_value;
 mod schema_compiler;
 mod satya_model_instance;
+mod fast_parse;
+pub mod simd_batch;
+mod turbo_validator;
+
+use turbo_validator::{TurboValidatorPy, TurboModelInstance};
 
 use satya_model_instance::{SatyaModelInstance, compile_schema, validate_batch_native, validate_batch_parallel};
 use schema_compiler::CompiledSchema;
@@ -1042,6 +1047,10 @@ fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compile_schema, m)?)?;
     m.add_function(wrap_pyfunction!(validate_batch_native, m)?)?;
     m.add_function(wrap_pyfunction!(validate_batch_parallel, m)?)?;
-    
+
+    // TurboValidator: Bulk extraction architecture (2-3x speedup)
+    m.add_class::<TurboValidatorPy>()?;
+    m.add_class::<TurboModelInstance>()?;
+
     Ok(())
 }
