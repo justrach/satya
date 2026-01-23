@@ -9,6 +9,7 @@
 [![PyPI version](https://badge.fury.io/py/satya.svg)](https://badge.fury.io/py/satya)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://pypi.org/project/satya/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/justrach/satya)
 
 </div>
 
