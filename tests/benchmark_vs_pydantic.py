@@ -55,7 +55,6 @@ class PydanticUser(PydanticBaseModel):
 # Satya Models
 # ═══════════════════════════════════════════════════════════════
 import sys
-sys.path.insert(0, '/Users/rachpradhan/conductor/workspaces/satya/provo/src')
 from satya import Model, Field as SatyaField
 
 class SatyaSimple(Model):
