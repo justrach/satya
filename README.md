@@ -155,15 +155,12 @@ print(user.address.city)  # "NYC" — zero-overhead nested construction
 
 ## 📊 Performance at a Glance
 
-<p align="center">
-  <img src="benchmarks/performance_comparison_simple.png" alt="Performance Comparison" width="100%"/>
-</p>
-
-**Key Takeaways:**
-- 🚀 **Parallel Batch**: 1.33× faster than Pydantic (2.71M items/sec)
-- ⚡ **Single Model**: 1.18M ops/sec (competitive with Pydantic)
-- 💾 **Memory**: 128 bytes per instance (2.3× less than dict-based)
-- 🦀 **Architecture**: Pure Rust-native storage with GIL-free processing
+**Key Takeaways (v0.5.0):**
+- 🚀 **Overall**: 1.17× faster than Pydantic v2 (geometric mean)
+- ⚡ **Raw Validator**: 19.4M ops/sec (8.85× faster than Pydantic!)
+- 📦 **model_dump()**: 1.6× faster than Pydantic
+- 🔤 **model_dump_json()**: 1.3× faster than Pydantic
+- 🦀 **Architecture**: TurboValidator with pre-interned keys + zero-allocation paths
 
 ---
 
