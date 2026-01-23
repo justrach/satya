@@ -403,3 +403,178 @@ impl TurboValidatorPy {
 
     /// Validate a dict and return a PyDict directly (no TurboValue intermediate!)
     /// This is the key performance optimization: validate + build PyDict in one pass.
+    fn validate_to_dict(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+        Self::validate_to_dict_inner(py, schema, data, &self.defaults)
+    }
+
+    /// Validate and write directly into target dict (avoids temporary + update())
+    /// This is the fastest path: no intermediate PyDict allocation.
+    fn validate_into_dict(&self, py: Python<'_>, data: &Bound<'_, PyDict>, target: &Bound<'_, PyDict>) -> PyResult<()> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+        // Use u64 bitmap for found fields (no heap alloc for ≤64 fields)
+        let mut found: u64 = 0;
+        // Lazy error collection (no Vec alloc in common no-error case)
+        let mut first_error: Option<String> = None;
+        let mut extra_errors: Option<Vec<String>> = None;
+
+        // Single-pass: validate + write directly to target
+        for (key, value) in data.iter() {
+            let key_str = match key.downcast::<PyString>() {
+                Ok(s) => match s.to_str() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+
+            if let Some(&idx) = schema.field_map.get(key_str) {
+                let field = &schema.fields[idx];
+                match Self::validate_field_inline(py, field, &value) {
+                    Ok(coerced) => {
+                        if let Some(ref nested_schema) = field.nested_schema {
+                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                                let empty_defaults = HashMap::new();
+                                match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                    Ok(validated_nested) => {
+                                        target.set_item(key_str, validated_nested)?;
+                                    }
+                                    Err(e) => {
+                                        let msg = format!("{}: {}", key_str, e);
+                                        if first_error.is_none() { first_error = Some(msg); }
+                                        else { extra_errors.get_or_insert_with(Vec::new).push(msg); }
+                                    }
+                                }
+                            } else if value.is_none() && !field.required {
+                                target.set_item(key_str, py.None())?;
+                            } else {
+                                target.set_item(key_str, &value)?;
+                            }
+                        } else if let Some(coerced_val) = coerced {
+                            target.set_item(key_str, coerced_val.bind(py))?;
+                        } else {
+                            target.set_item(key_str, &value)?;
+                        }
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if first_error.is_none() { first_error = Some(msg); }
+                        else { extra_errors.get_or_insert_with(Vec::new).push(msg); }
+                    }
+                }
+                found |= 1u64 << idx;
+            }
+        }
+
+        // Check required + apply defaults
+        for field in &schema.fields {
+            if found & (1u64 << field.index) == 0 {
+                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                    Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
+                } else if field.required {
+                    let msg = format!("Required field '{}' is missing", field.name);
+                    if first_error.is_none() { first_error = Some(msg); }
+                    else { extra_errors.get_or_insert_with(Vec::new).push(msg); }
+                }
+            }
+        }
+
+        if let Some(err) = first_error {
+            if let Some(extras) = extra_errors {
+                let mut msg = err;
+                for e in extras { msg.push('\n'); msg.push_str(&e); }
+                return Err(PyErr::new::<PyValueError, _>(msg));
+            }
+            return Err(PyErr::new::<PyValueError, _>(err));
+        }
+        Ok(())
+    }
+
+    /// Fast validate that returns errors as a list instead of raising exceptions.
+    /// Returns None on success, or a list of (field_name, message) tuples on validation failure.
+    /// This eliminates Python try/except overhead and string parsing.
+    fn validate_into_dict_result(&self, py: Python<'_>, data: &Bound<'_, PyDict>, target: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+        let mut found: u64 = 0;
+        // Collect errors as (field_name, message) pairs
+        let mut errors: Option<Vec<(&str, String)>> = None;
+
+        for (key, value) in data.iter() {
+            let key_str = match key.downcast::<PyString>() {
+                Ok(s) => match s.to_str() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+
+            if let Some(&idx) = schema.field_map.get(key_str) {
+                let field = &schema.fields[idx];
+                match Self::validate_field_inline(py, field, &value) {
+                    Ok(coerced) => {
+                        if let Some(ref nested_schema) = field.nested_schema {
+                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                                let empty_defaults = HashMap::new();
+                                match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                    Ok(validated_nested) => {
+                                        target.set_item(key_str, validated_nested)?;
+                                    }
+                                    Err(e) => {
+                                        errors.get_or_insert_with(Vec::new).push(
+                                            (field.name.as_str(), format!("{}: {}", field.name, e))
+                                        );
+                                    }
+                                }
+                            } else if value.is_none() && !field.required {
+                                target.set_item(key_str, py.None())?;
+                            } else {
+                                target.set_item(key_str, &value)?;
+                            }
+                        } else if let Some(coerced_val) = coerced {
+                            target.set_item(key_str, coerced_val.bind(py))?;
+                        } else {
+                            target.set_item(key_str, &value)?;
+                        }
+                    }
+                    Err(e) => {
+                        errors.get_or_insert_with(Vec::new).push(
+                            (field.name.as_str(), e.to_string())
+                        );
+                    }
+                }
+                found |= 1u64 << idx;
+            }
+        }
+
+        // Check required + apply defaults
+        for field in &schema.fields {
+            if found & (1u64 << field.index) == 0 {
+                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                    Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
+                } else if field.required {
+                    errors.get_or_insert_with(Vec::new).push(
+                        (field.name.as_str(), format!("Required field '{}' is missing", field.name))
+                    );
+                }
+            }
+        }
+
+        if let Some(errs) = errors {
+            // Return list of (field_name, message) tuples - no exception overhead
+            let err_list = PyList::new(py, errs.iter().map(|(fname, msg)| {
+                (*fname, msg.as_str())
+            }))?;
+            Ok(err_list.into_any().unbind())
+        } else {
+            Ok(py.None())
+        }
+    }
+
+    /// Fast validate with pre-created nested instance __dict__s.
+    /// nested_targets: {field_name: nested_instance.__dict__}
