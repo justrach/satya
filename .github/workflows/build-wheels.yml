@@ -100,7 +100,8 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          args: --release --out dist --find-interpreter --universal2
+          target: universal2-apple-darwin
+          args: --release --out dist --find-interpreter
           sccache: 'true'
       - uses: actions/upload-artifact@v4
         with:
