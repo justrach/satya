@@ -883,3 +883,283 @@ impl TurboValidatorPy {
     /// PRIORITY 1+4: Validate kwargs and construct Model instance in ONE Rust call.
     /// Eliminates: Python __init__ body, _construct_validated, intermediate dict.
     /// Handles nested models: pass nested_classes={field_name: ModelClass} to recursively construct.
+    fn validate_and_construct(
+        &self,
+        py: Python<'_>,
+        cls: &Bound<'_, PyAny>,
+        data: &Bound<'_, PyDict>,
+        nested_classes: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<PyObject> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+
+        let mut errors: Vec<String> = Vec::new();
+        let mut found = vec![false; schema.fields.len()];
+
+        // 1. Create instance via cls.__new__(cls) — same as Pydantic-core
+        let instance = cls.call_method1("__new__", (cls,))?;
+        let instance_dict_any = instance.getattr("__dict__")?;
+        let instance_dict = instance_dict_any.downcast::<PyDict>()?;
+
+        // 2. Single-pass: validate + write directly to instance.__dict__
+        for (key, value) in data.iter() {
+            let key_str = match key.downcast::<PyString>() {
+                Ok(s) => match s.to_str() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+
+            if let Some(&idx) = schema.field_map.get(key_str) {
+                let field = &schema.fields[idx];
+                match Self::validate_field_inline(py, field, &value) {
+                    Ok(coerced) => {
+                        if let Some(ref nested_schema) = field.nested_schema {
+                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                                // Try to construct nested Model instance
+                                if let Some(nc) = nested_classes {
+                                    if let Ok(Some(nested_cls)) = nc.get_item(key_str) {
+                                        // Get the nested turbo validator
+                                        if let Ok(nested_turbo_any) = nested_cls.getattr("__turbo__") {
+                                            if !nested_turbo_any.is_none() {
+                                                if let Ok(nested_turbo) = nested_turbo_any.downcast::<TurboValidatorPy>() {
+                                                    // Get nested class's own __nested_fields__ for recursive construction
+                                                    let nested_nested = nested_cls.getattr("__nested_fields__")
+                                                        .ok()
+                                                        .and_then(|v| if v.is_none() { None } else { v.downcast::<PyDict>().ok().map(|d| d.clone()) });
+                                                    let nested_nc = nested_nested.as_ref().and_then(|d| if d.is_empty() { None } else { Some(d) });
+                                                    // Recursively construct nested model instance!
+                                                    match nested_turbo.borrow().validate_and_construct(py, &nested_cls, nested_dict, nested_nc) {
+                                                        Ok(nested_instance) => {
+                                                            instance_dict.set_item(key_str, nested_instance)?;
+                                                            found[idx] = true;
+                                                            continue;
+                                                        }
+                                                        Err(e) => {
+                                                            errors.push(format!("{}: {}", key_str, e));
+                                                            found[idx] = true;
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // Nested class has no turbo → call cls(**data) for full Python path
+                                        match nested_cls.call((), Some(nested_dict)) {
+                                            Ok(nested_instance) => {
+                                                instance_dict.set_item(key_str, nested_instance)?;
+                                            }
+                                            Err(e) => {
+                                                errors.push(format!("{}: {}", key_str, e));
+                                            }
+                                        }
+                                    } else {
+                                        // No nested class for this field → call Python fallback
+                                        if let Some(nc_outer) = nested_classes {
+                                            // This shouldn't happen (field has nested_schema but no class)
+                                            let empty_defaults = HashMap::new();
+                                            match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                                Ok(validated_nested) => {
+                                                    instance_dict.set_item(key_str, validated_nested)?;
+                                                }
+                                                Err(e) => {
+                                                    errors.push(format!("{}: {}", key_str, e));
+                                                }
+                                            }
+                                        } else {
+                                            let empty_defaults = HashMap::new();
+                                            match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                                Ok(validated_nested) => {
+                                                    instance_dict.set_item(key_str, validated_nested)?;
+                                                }
+                                                Err(e) => {
+                                                    errors.push(format!("{}: {}", key_str, e));
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // No nested_classes provided → validate as dict
+                                    let empty_defaults = HashMap::new();
+                                    match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                        Ok(validated_nested) => {
+                                            instance_dict.set_item(key_str, validated_nested)?;
+                                        }
+                                        Err(e) => {
+                                            errors.push(format!("{}: {}", key_str, e));
+                                        }
+                                    }
+                                }
+                            } else if value.is_none() && !field.required {
+                                instance_dict.set_item(key_str, py.None())?;
+                            } else {
+                                instance_dict.set_item(key_str, &value)?;
+                            }
+                        } else if let Some(coerced_val) = coerced {
+                            instance_dict.set_item(key_str, coerced_val.bind(py))?;
+                        } else {
+                            instance_dict.set_item(key_str, &value)?;
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(e.to_string());
+                    }
+                }
+                found[idx] = true;
+            }
+        }
+
+        // 3. Check required + apply defaults
+        for field in &schema.fields {
+            if !found[field.index] {
+                let has_default = self.defaults.contains_key(&field.name);
+                if field.required && !has_default {
+                    errors.push(format!("Required field '{}' is missing", field.name));
+                    continue;
+                }
+                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                    Self::apply_default(py, instance_dict, &field.name, default_val, *is_mutable)?;
+                }
+            }
+        }
+
+        // 4. Raise accumulated errors (Priority 2: structured)
+        if !errors.is_empty() {
+            return Err(PyErr::new::<PyValueError, _>(errors.join("\n")));
+        }
+
+        Ok(instance.unbind())
+    }
+
+    /// PRIORITY 3: Validate JSON bytes and construct Model instance in ONE Rust call.
+    /// Combines: JSON parse + validate + cls.__new__() + __dict__ population.
+    fn validate_json_and_construct(
+        &self,
+        py: Python<'_>,
+        cls: &Bound<'_, PyAny>,
+        json_data: &Bound<'_, PyAny>,
+        nested_classes: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<PyObject> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+
+        // Parse JSON directly from borrowed data (zero-copy!)
+        let json_value: serde_json::Value = if let Ok(b) = json_data.downcast::<PyBytes>() {
+            serde_json::from_slice(b.as_bytes()).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
+            })?
+        } else if let Ok(s) = json_data.downcast::<PyString>() {
+            serde_json::from_str(s.to_str()?).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
+            })?
+        } else {
+            return Err(PyErr::new::<PyValueError, _>("Expected bytes or str"));
+        };
+
+        let obj = match json_value {
+            serde_json::Value::Object(map) => map,
+            _ => return Err(PyErr::new::<PyValueError, _>("JSON must be an object")),
+        };
+
+        // Create instance via cls.__new__(cls)
+        let instance = cls.call_method1("__new__", (cls,))?;
+        let instance_dict_any = instance.getattr("__dict__")?;
+        let instance_dict = instance_dict_any.downcast::<PyDict>()?;
+
+        // Validate and populate __dict__ directly
+        let mut found = vec![false; schema.fields.len()];
+        for (key, json_val) in obj.iter() {
+            if let Some(&idx) = schema.field_map.get(key) {
+                let field = &schema.fields[idx];
+                if let Some(ref nested_schema) = field.nested_schema {
+                    if let serde_json::Value::Object(ref nested_obj) = json_val {
+                        // Try to construct nested Model instance
+                        if let Some(nc) = nested_classes {
+                            if let Ok(Some(nested_cls)) = nc.get_item(key) {
+                                if let Ok(nested_turbo_any) = nested_cls.getattr("__turbo__") {
+                                    if !nested_turbo_any.is_none() {
+                                        if let Ok(nested_turbo) = nested_turbo_any.downcast::<TurboValidatorPy>() {
+                                            // Create nested instance
+                                            let nested_instance_obj = nested_cls.call_method1("__new__", (&nested_cls,))?;
+                                            let nested_dict_any = nested_instance_obj.getattr("__dict__")?;
+                                            let nested_dict = nested_dict_any.downcast::<PyDict>()?;
+                                            let nested_defaults = &nested_turbo.borrow().defaults;
+                                            // Validate nested fields
+                                            let mut nested_found = vec![false; nested_schema.fields.len()];
+                                            for (nk, nv) in nested_obj.iter() {
+                                                if let Some(&nidx) = nested_schema.field_map.get(nk) {
+                                                    let nfield = &nested_schema.fields[nidx];
+                                                    let py_val = Self::json_value_to_validated_py(py, nfield, nv)?;
+                                                    nested_dict.set_item(nk, py_val)?;
+                                                    nested_found[nidx] = true;
+                                                }
+                                            }
+                                            // Apply nested defaults
+                                            for nfield in &nested_schema.fields {
+                                                if !nested_found[nfield.index] {
+                                                    if let Some((ref dv, im)) = nested_defaults.get(&nfield.name) {
+                                                        Self::apply_default(py, nested_dict, &nfield.name, dv, *im)?;
+                                                    } else if nfield.required {
+                                                        return Err(PyErr::new::<PyValueError, _>(
+                                                            format!("Required field '{}.{}' is missing", key, nfield.name)
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                            instance_dict.set_item(key, nested_instance_obj)?;
+                                            found[idx] = true;
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Fallback: validate as dict
+                        let empty_defaults = HashMap::new();
+                        let validated_nested = Self::json_object_to_validated_dict(py, nested_schema, nested_obj, &empty_defaults)?;
+                        instance_dict.set_item(key, validated_nested)?;
+                    } else if json_val.is_null() && !field.required {
+                        instance_dict.set_item(key, py.None())?;
+                    } else {
+                        let py_val = Self::json_value_to_validated_py(py, field, json_val)?;
+                        instance_dict.set_item(key, py_val)?;
+                    }
+                } else {
+                    let py_val = Self::json_value_to_validated_py(py, field, json_val)?;
+                    instance_dict.set_item(key, py_val)?;
+                }
+                found[idx] = true;
+            }
+        }
+
+        // Check required + apply defaults
+        for field in &schema.fields {
+            if !found[field.index] {
+                let has_default = self.defaults.contains_key(&field.name);
+                if field.required && !has_default {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Required field '{}' is missing", field.name)
+                    ));
+                }
+                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                    Self::apply_default(py, instance_dict, &field.name, default_val, *is_mutable)?;
+                }
+            }
+        }
+
+        Ok(instance.unbind())
+    }
+
+    /// Validate a dict and return TurboModelInstance (data stays in Rust!)
+    fn validate(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<TurboModelInstance> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+        Self::validate_inner(py, schema, data)
+    }
+
+    /// Ultra-fast validate: zero allocation, type-check only for unconstrained fields.
+    /// Returns None on success, raises ValueError on failure.
