@@ -1,13 +1,9 @@
-import os
-import sys
 import unittest
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 import re
 
-# Add src to Python path for proper imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import satya
 from satya import Model, Field, ValidationError, ModelValidationError
 

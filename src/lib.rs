@@ -28,6 +28,11 @@ use fast_model::{UltraFastModel, hydrate_one_ultra_fast, hydrate_batch_ultra_fas
 mod field_value;
 mod schema_compiler;
 mod satya_model_instance;
+mod fast_parse;
+pub mod simd_batch;
+mod turbo_validator;
+
+use turbo_validator::{TurboValidatorPy, TurboModelInstance};
 
 use satya_model_instance::{SatyaModelInstance, compile_schema, validate_batch_native, validate_batch_parallel};
 use schema_compiler::CompiledSchema;
@@ -555,7 +560,7 @@ impl StreamValidatorCore {
 
     fn validate_item_internal(&self, item: Bound<'_, PyAny>) -> PyResult<bool> {
         // Fast path: direct downcast without separate type check
-        let dict = match item.downcast::<pyo3::types::PyDict>() {
+        let dict = match item.cast::<pyo3::types::PyDict>() {
             Ok(d) => d,
             Err(_) => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Item must be a dict")),
         };
@@ -568,7 +573,7 @@ impl StreamValidatorCore {
                     match &validator.field_type {
                         FieldType::String if validator.constraints.is_simple() => {
                             // Fast path for simple string validation
-                            if let Ok(py_str) = value.downcast::<pyo3::types::PyString>() {
+                            if let Ok(py_str) = value.cast::<pyo3::types::PyString>() {
                                 let _s = py_str.to_str()?; // Just validate it's a string
                             } else {
                                 return Err(get_cached_error("Expected string"));
@@ -576,7 +581,7 @@ impl StreamValidatorCore {
                         }
                         FieldType::Integer if validator.constraints.is_simple() => {
                             // Fast path for simple integer validation
-                            if value.downcast::<pyo3::types::PyInt>().is_err() {
+                            if value.cast::<pyo3::types::PyInt>().is_err() {
                                 return Err(get_cached_error("Expected integer"));
                             }
                         }
@@ -653,10 +658,10 @@ fn get_cached_error(msg: &'static str) -> PyErr {
 
 // Helper: extract &[u8] from Python bytes or str without unnecessary copies
 fn extract_bytes(data: Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
-    if let Ok(b) = data.downcast::<PyBytes>() {
+    if let Ok(b) = data.cast::<PyBytes>() {
         return Ok(b.as_bytes().to_vec());
     }
-    if let Ok(s) = data.downcast::<pyo3::types::PyString>() {
+    if let Ok(s) = data.cast::<pyo3::types::PyString>() {
         return Ok(s.to_str()?.as_bytes().to_vec());
     }
     Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
@@ -696,7 +701,7 @@ impl StreamValidatorCore {
         match field_type {
             FieldType::String => {
                 // Fast path: try direct downcast first, avoid separate type check
-                let s = match value.downcast::<pyo3::types::PyString>() {
+                let s = match value.cast::<pyo3::types::PyString>() {
                     Ok(py_str) => py_str.to_str()?,
                     Err(_) => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected string")),
                 };
@@ -748,9 +753,9 @@ impl StreamValidatorCore {
             }
             FieldType::Integer | FieldType::Float => {
                 // Fast path: try direct downcasts without separate type checks
-                let num = if let Ok(py_int) = value.downcast::<pyo3::types::PyInt>() {
+                let num = if let Ok(py_int) = value.cast::<pyo3::types::PyInt>() {
                     py_int.extract::<f64>()?
-                } else if let Ok(py_float) = value.downcast::<pyo3::types::PyFloat>() {
+                } else if let Ok(py_float) = value.cast::<pyo3::types::PyFloat>() {
                     py_float.extract::<f64>()?
                 } else {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected number"));
@@ -802,22 +807,22 @@ impl StreamValidatorCore {
                 }
             }
             FieldType::Boolean => {
-                if value.downcast::<pyo3::types::PyBool>().is_err() {
+                if value.cast::<pyo3::types::PyBool>().is_err() {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Expected boolean"));
                 }
             }
             FieldType::Decimal => {
                 // Handle Decimal type - accept strings, ints, floats, or Decimal objects
-                let num = if value.downcast::<pyo3::types::PyString>().is_ok() {
+                let num = if value.cast::<pyo3::types::PyString>().is_ok() {
                     // Parse string as decimal
-                    let s = value.downcast::<pyo3::types::PyString>()?.to_str()?;
+                    let s = value.cast::<pyo3::types::PyString>()?.to_str()?;
                     s.parse::<f64>().map_err(|_| {
                         PyErr::new::<pyo3::exceptions::PyValueError, _>("Invalid decimal format")
                     })?
-                } else if value.downcast::<pyo3::types::PyInt>().is_ok() {
-                    value.downcast::<pyo3::types::PyInt>()?.extract::<f64>()?
-                } else if value.downcast::<pyo3::types::PyFloat>().is_ok() {
-                    value.downcast::<pyo3::types::PyFloat>()?.extract::<f64>()?
+                } else if value.cast::<pyo3::types::PyInt>().is_ok() {
+                    value.cast::<pyo3::types::PyInt>()?.extract::<f64>()?
+                } else if value.cast::<pyo3::types::PyFloat>().is_ok() {
+                    value.cast::<pyo3::types::PyFloat>()?.extract::<f64>()?
                 } else {
                     // Try to extract as any numeric type (handles Decimal objects)
                     match value.extract::<f64>() {
@@ -872,7 +877,7 @@ impl StreamValidatorCore {
                 }
             }
             FieldType::List(inner_type) => {
-                let list = value.downcast::<pyo3::types::PyList>()?;
+                let list = value.cast::<pyo3::types::PyList>()?;
                 
                 // Add min/max items validation
                 if let Some(min_items) = constraints.min_items {
@@ -911,13 +916,13 @@ impl StreamValidatorCore {
                 }
             }
             FieldType::Dict(inner_type) => {
-                let dict = value.downcast::<pyo3::types::PyDict>()?;
+                let dict = value.cast::<pyo3::types::PyDict>()?;
                 for item in dict.values() {
                     self.validate_value(item, inner_type, constraints)?;
                 }
             }
             FieldType::Custom(type_name) => {
-                let dict = value.downcast::<pyo3::types::PyDict>()?;
+                let dict = value.cast::<pyo3::types::PyDict>()?;
                 let custom_type = self.custom_types.get(type_name)
                     .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>(
                         format!("Custom type {} not found", type_name)
@@ -1042,6 +1047,10 @@ fn _satya(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compile_schema, m)?)?;
     m.add_function(wrap_pyfunction!(validate_batch_native, m)?)?;
     m.add_function(wrap_pyfunction!(validate_batch_parallel, m)?)?;
-    
+
+    // TurboValidator: Bulk extraction architecture (2-3x speedup)
+    m.add_class::<TurboValidatorPy>()?;
+    m.add_class::<TurboModelInstance>()?;
+
     Ok(())
 }

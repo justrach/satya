@@ -1,13 +1,9 @@
-import os
-import sys
 import unittest
 import time
 import json
 from typing import List, Dict
 import random
 
-# Add src to Python path for proper imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import satya
 from satya import Model, Field, StreamValidator
 

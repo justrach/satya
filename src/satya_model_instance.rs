@@ -167,7 +167,7 @@ pub fn validate_batch_native(
     
     // Sequential validation (parallel requires Send+Sync which PyO3 types don't have)
     for item in data_list.iter() {
-        let dict = item.downcast::<PyDict>()?;
+        let dict = item.cast::<PyDict>()?;
         results.push(SatyaModelInstance::from_dict(py, schema, dict)?);
     }
     
@@ -187,7 +187,7 @@ pub fn validate_batch_parallel(
     // Extract all data to Rust structures first (with GIL)
     let mut raw_data: Vec<Vec<(String, FieldValue)>> = Vec::with_capacity(len);
     for item in data_list.iter() {
-        let dict = item.downcast::<PyDict>()?;
+        let dict = item.cast::<PyDict>()?;
         let mut row = Vec::new();
         
         for field in &schema.fields {
@@ -203,7 +203,7 @@ pub fn validate_batch_parallel(
     
     // Release GIL and validate in parallel
     let schema_arc = Arc::new(schema.clone());
-    let results: Result<Vec<_>, String> = py.allow_threads(|| {
+    let results: Result<Vec<_>, String> = py.detach(|| {
         raw_data.par_iter().map(|row| {
             let mut fields = Vec::with_capacity(schema_arc.fields.len());
             

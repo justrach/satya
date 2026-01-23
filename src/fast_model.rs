@@ -32,7 +32,7 @@ struct SchemaShape {
 
 impl Clone for SchemaShape {
     fn clone(&self) -> Self {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             Self {
                 id: self.id,
                 field_names: self.field_names.iter().map(|s| s.clone_ref(py)).collect(),
@@ -210,7 +210,7 @@ pub fn hydrate_batch_ultra_fast(
     let result_list = PyList::empty(py);
     
     for dict_item in validated_dicts.iter() {
-        let dict = dict_item.downcast::<PyDict>()?;
+        let dict = dict_item.cast::<PyDict>()?;
         
         // Fill slots using shared shape
         let mut slots = Vec::with_capacity(shape.num_fields);
@@ -258,7 +258,7 @@ pub fn hydrate_batch_ultra_fast_parallel(
     // Convert to Vec for parallel processing
     let dicts: Vec<Py<PyDict>> = validated_dicts
         .iter()
-        .map(|item| item.downcast::<PyDict>().unwrap().clone().unbind())
+        .map(|item| item.cast::<PyDict>().unwrap().clone().unbind())
         .collect();
     
     let schema_name_clone = schema_name.to_string();
@@ -269,7 +269,7 @@ pub fn hydrate_batch_ultra_fast_parallel(
     let results: Vec<Vec<UltraFastModel>> = py.detach(|| {
         dicts.par_chunks(CHUNK_SIZE)
             .map(|chunk| {
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     chunk.iter()
                         .map(|dict_py| {
                             let dict = dict_py.bind(py);

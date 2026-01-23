@@ -9,11 +9,6 @@ Tests the new features added in Satya v0.4.0:
 """
 
 import pytest
-import sys
-import os
-
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from satya import Model, Field
 from satya.web import (

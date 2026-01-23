@@ -81,7 +81,7 @@ pub fn hydrate_batch(
     let result_list = pyo3::types::PyList::empty(py);
     
     for dict_item in validated_dicts.iter() {
-        let dict = dict_item.downcast::<PyDict>()?;
+        let dict = dict_item.cast::<PyDict>()?;
         let native_model = NativeModel::new(
             dict.clone().unbind(),
             schema_name.to_string()
@@ -111,7 +111,7 @@ pub fn hydrate_batch_parallel(
     
     let dicts: Vec<Py<PyDict>> = validated_dicts
         .iter()
-        .map(|item| item.downcast::<PyDict>().unwrap().clone().unbind())
+        .map(|item| item.cast::<PyDict>().unwrap().clone().unbind())
         .collect();
     
     let schema_name = schema_name.to_string();

@@ -1,0 +1,192 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin pydantic pytest
+
+      - name: Build and install
+        run: maturin build --release -i python --out dist && pip install dist/*.whl
+
+      - name: Run benchmark
+        working-directory: /tmp
+        run: |
+          echo "## Python ${{ matrix.python-version }} Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          python $GITHUB_WORKSPACE/tests/benchmark_vs_pydantic.py 2>&1 | tee benchmark_output.txt
+          cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Extract key metrics
+        working-directory: /tmp
+        run: |
+          python -c "
+          import re, json
+          with open('benchmark_output.txt') as f:
+              text = f.read()
+          # Extract geometric mean
+          m = re.search(r'Geometric mean speedup.*?(\d+\.\d+)x', text)
+          geo_mean = float(m.group(1)) if m else 0.0
+          # Extract raw validator speed
+          m = re.search(r'Raw Rust validate_check.*?([\d,]+)', text)
+          raw_ops = int(m.group(1).replace(',', '')) if m else 0
+          # Extract model_dump speed
+          m = re.search(r'Simple model_dump.*?([\d,]+)', text)
+          dump_ops = int(m.group(1).replace(',', '')) if m else 0
+          print(json.dumps({
+              'python_version': '${{ matrix.python-version }}',
+              'geometric_mean': geo_mean,
+              'raw_validate_ops': raw_ops,
+              'model_dump_ops': dump_ops
+          }))
+          " > metrics.json
+          cat metrics.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-py${{ matrix.python-version }}
+          path: |
+            /tmp/benchmark_output.txt
+            /tmp/metrics.json
+
+  benchmark-free-threaded:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.13t', '3.14t']
+      fail-fast: false
+    name: "benchmark (${{ matrix.python-version }} free-threaded)"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin pydantic pytest
+
+      - name: Build and install
+        run: maturin build --release -i python --out dist && pip install dist/*.whl
+
+      - name: Run benchmark
+        working-directory: /tmp
+        run: |
+          echo "## Python ${{ matrix.python-version }} (free-threaded) Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          python $GITHUB_WORKSPACE/tests/benchmark_vs_pydantic.py 2>&1 | tee benchmark_output.txt
+          cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Run thread scaling test
+        run: |
+          echo "## Thread Scaling (${{ matrix.python-version }} free-threaded)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          python -c "
+          import time, sys, concurrent.futures
+          from satya._satya import TurboValidatorPy
+
+          turbo = TurboValidatorPy()
+          turbo.add_field('name', 'str', True)
+          turbo.add_field('age', 'int', True)
+          turbo.add_field('email', 'str', True)
+          turbo.compile()
+
+          N = 200_000
+          data = {'name': 'Alice', 'age': 30, 'email': 'alice@example.com'}
+
+          # Single thread baseline
+          start = time.perf_counter()
+          for _ in range(N):
+              turbo.validate_check(data)
+          single_ops = N / (time.perf_counter() - start)
+          print(f'GIL enabled: {sys._is_gil_enabled()}')
+          print(f'  1 thread:  {single_ops:>12,.0f} ops/s (baseline)')
+
+          for threads in [2, 4, 8]:
+              per_thread = N // threads
+              def work(n):
+                  d = {'name': 'Alice', 'age': 30, 'email': 'a@b.com'}
+                  for _ in range(n):
+                      turbo.validate_check(d)
+              start = time.perf_counter()
+              with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
+                  futures = [pool.submit(work, per_thread) for _ in range(threads)]
+                  [f.result() for f in futures]
+              ops = N / (time.perf_counter() - start)
+              print(f'  {threads} threads: {ops:>12,.0f} ops/s ({ops/single_ops:.2f}x)')
+          " 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-py${{ matrix.python-version }}
+          path: /tmp/benchmark_output.txt
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [benchmark, benchmark-free-threaded]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'benchmark-*'
+          path: results
+
+      - name: Generate comparison table
+        run: |
+          echo "## Cross-Version Benchmark Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Python | Geometric Mean | Raw validate_check | model_dump |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------------|-------------------|------------|" >> $GITHUB_STEP_SUMMARY
+
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+            if [ -f "results/benchmark-py${version}/metrics.json" ]; then
+              python3 -c "
+          import json
+          with open('results/benchmark-py${version}/metrics.json') as f:
+              m = json.load(f)
+          geo = m['geometric_mean']
+          raw = m['raw_validate_ops']
+          dump = m['model_dump_ops']
+          print(f'| {m[\"python_version\"]} | {geo:.2f}x | {raw:,} ops/s | {dump:,} ops/s |')
+          " >> $GITHUB_STEP_SUMMARY
+            fi
+          done

@@ -286,17 +286,12 @@ impl ModelValidator {
                 }
             }
             FieldType::Int => {
-                // Try to coerce string to int (Pydantic compatibility)
                 if value.is_exact_instance_of::<PyInt>() && !value.is_instance_of::<PyBool>() {
                     Ok(value.clone())
                 } else if value.is_exact_instance_of::<PyString>() {
-                    // Coerce string to int
                     let s: String = value.extract()?;
                     match s.trim().parse::<i64>() {
-                        Ok(i) => {
-                            let py_int = py.import("builtins")?.getattr("int")?.call1((i,))?;
-                            Ok(py_int.into_any())
-                        },
+                        Ok(i) => Ok(i.into_pyobject(py).unwrap().into_any()),
                         Err(_) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                             format!("Field '{}' cannot be converted to int", field.name)
                         ))
@@ -308,22 +303,15 @@ impl ModelValidator {
                 }
             }
             FieldType::Float => {
-                // Accept int or float, coerce string to float
                 if value.is_exact_instance_of::<PyFloat>() {
                     Ok(value.clone())
                 } else if value.is_exact_instance_of::<PyInt>() {
-                    // Coerce int to float
-                    let i: i64 = value.extract()?;
-                    let py_float = py.import("builtins")?.getattr("float")?.call1((i,))?;
-                    Ok(py_float.into_any())
+                    let i: f64 = value.extract()?;
+                    Ok(PyFloat::new(py, i).into_any())
                 } else if value.is_exact_instance_of::<PyString>() {
-                    // Coerce string to float
                     let s: String = value.extract()?;
                     match s.trim().parse::<f64>() {
-                        Ok(f) => {
-                            let py_float = py.import("builtins")?.getattr("float")?.call1((f,))?;
-                            Ok(py_float.into_any())
-                        },
+                        Ok(f) => Ok(PyFloat::new(py, f).into_any()),
                         Err(_) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                             format!("Field '{}' cannot be converted to float", field.name)
                         ))
@@ -362,12 +350,10 @@ impl ModelValidator {
                 }
             }
             FieldType::Decimal => {
-                let decimal_type = py.import("decimal")?.getattr("Decimal")?;
-                if value.is_instance(&decimal_type)? {
+                let decimal_class = crate::blaze_validator::get_decimal_class(py)?;
+                if value.is_instance(&decimal_class)? {
                     Ok(value.clone())
                 } else if value.is_exact_instance_of::<PyString>() || value.is_exact_instance_of::<PyInt>() || value.is_exact_instance_of::<PyFloat>() {
-                    // Coerce to Decimal
-                    let decimal_class = py.import("decimal")?.getattr("Decimal")?;
                     Ok(decimal_class.call1((value,))?.into_any())
                 } else {
                     Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -477,7 +463,7 @@ impl ModelValidator {
     /// Validate list constraints (min_items, max_items, unique_items)
     #[inline(always)]
     fn validate_list_constraints(&self, field: &FieldSpec, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        let list = value.downcast::<PyList>()?;
+        let list = value.cast::<PyList>()?;
         let len = list.len();
         
         if let Some(min_items) = field.min_items {
@@ -520,7 +506,7 @@ impl ModelValidator {
         if len < 1000 {
             let result_list = PyList::empty(py);
             for item in data_list.iter() {
-                let dict = item.downcast::<PyDict>()?;
+                let dict = item.cast::<PyDict>()?;
                 let validated = self.validate(py, dict)?;
                 result_list.append(validated)?;
             }
@@ -530,7 +516,7 @@ impl ModelValidator {
         // Parallel validation for large batches
         let dicts: Vec<Py<PyDict>> = data_list
             .iter()
-            .map(|item| item.downcast::<PyDict>().unwrap().clone().unbind())
+            .map(|item| item.cast::<PyDict>().unwrap().clone().unbind())
             .collect();
         
         const CHUNK_SIZE: usize = 1000;
@@ -538,7 +524,7 @@ impl ModelValidator {
         let results: Vec<Vec<Py<PyDict>>> = py.detach(|| {
             dicts.par_chunks(CHUNK_SIZE)
                 .map(|chunk| {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         chunk.iter()
                             .map(|dict_py| {
                                 let dict = dict_py.bind(py);
