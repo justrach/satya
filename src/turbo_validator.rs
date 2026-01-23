@@ -1246,3 +1246,375 @@ impl TurboValidatorPy {
 }
 
 // Internal implementation (not exposed to Python)
+impl TurboValidatorPy {
+    /// Core validation loop — the heart of TurboValidator
+    fn validate_inner(
+        py: Python<'_>,
+        schema: &Arc<TurboSchema>,
+        data: &Bound<'_, PyDict>,
+    ) -> PyResult<TurboModelInstance> {
+        let n = schema.fields.len();
+        let mut values = vec![TurboValue::None; n];
+        let mut found = vec![false; n];
+
+        // ═══ PHASE 1: Bulk extract (single dict iteration, minimal FFI) ═══
+        for (key, value) in data.iter() {
+            // Key must be a string
+            let key_str = match key.downcast::<PyString>() {
+                Ok(s) => match s.to_str() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+
+            if let Some(&idx) = schema.field_map.get(key_str) {
+                let field = &schema.fields[idx];
+                values[idx] = Self::extract_value(py, field, &value)?;
+                found[idx] = true;
+            }
+        }
+
+        // ═══ PHASE 2: Validate constraints (PURE RUST, zero FFI!) ═══
+        for &idx in &schema.validation_order {
+            let field = &schema.fields[idx];
+            if !found[idx] {
+                if field.required {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Required field '{}' is missing", field.name)
+                    ));
+                }
+                continue;
+            }
+            // Check if required field is None
+            if matches!(values[idx], TurboValue::None) {
+                if field.required {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Required field '{}' cannot be None", field.name)
+                    ));
+                }
+                continue;
+            }
+            Self::validate_constraints(field, &values[idx])?;
+        }
+
+        Ok(TurboModelInstance {
+            schema: schema.clone(),
+            values,
+        })
+    }
+
+    /// Core validation loop that builds a PyDict directly — THE PERFORMANCE HEART
+    /// No TurboValue intermediate, returns original Python objects validated in-place.
+    /// Accumulates ALL errors before raising (Pydantic-compatible behavior).
+    fn validate_to_dict_inner(
+        py: Python<'_>,
+        schema: &Arc<TurboSchema>,
+        data: &Bound<'_, PyDict>,
+        defaults: &HashMap<String, (Py<PyAny>, bool)>,
+    ) -> PyResult<Py<PyDict>> {
+        let result_dict = PyDict::new(py);
+        let mut found = vec![false; schema.fields.len()];
+        let mut errors: Vec<String> = Vec::new();
+
+        // ═══ PHASE 1: Single-pass dict iteration — validate + copy to result dict ═══
+        for (key, value) in data.iter() {
+            let key_str = match key.downcast::<PyString>() {
+                Ok(s) => match s.to_str() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+
+            if let Some(&idx) = schema.field_map.get(key_str) {
+                let field = &schema.fields[idx];
+                // Validate inline — accumulate errors, don't fail fast
+                match Self::validate_field_inline(py, field, &value) {
+                    Ok(coerced) => {
+                        if let Some(ref nested_schema) = field.nested_schema {
+                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                                let empty_defaults = HashMap::new();
+                                match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                    Ok(validated_nested) => {
+                                        let _ = result_dict.set_item(key_str, validated_nested);
+                                    }
+                                    Err(e) => {
+                                        errors.push(format!("{}: {}", key_str, e));
+                                    }
+                                }
+                            } else if value.is_none() && !field.required {
+                                let _ = result_dict.set_item(key_str, py.None());
+                            } else {
+                                let _ = result_dict.set_item(key_str, &value);
+                            }
+                        } else if let Some(coerced_val) = coerced {
+                            // Use coerced value (e.g., string "30" → int 30)
+                            let _ = result_dict.set_item(key_str, coerced_val.bind(py));
+                        } else {
+                            let _ = result_dict.set_item(key_str, &value);
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(e.to_string());
+                    }
+                }
+                found[idx] = true;
+            }
+        }
+
+        // ═══ PHASE 2: Check required + apply defaults ═══
+        for field in &schema.fields {
+            if !found[field.index] {
+                let has_default = defaults.contains_key(&field.name);
+                if field.required && !has_default {
+                    errors.push(format!("Required field '{}' is missing", field.name));
+                    continue;
+                }
+                if let Some((ref default_val, is_mutable)) = defaults.get(&field.name) {
+                    Self::apply_default(py, &result_dict, &field.name, default_val, *is_mutable)?;
+                }
+            }
+        }
+
+        // ═══ PHASE 3: Raise accumulated errors ═══
+        if !errors.is_empty() {
+            return Err(PyErr::new::<PyValueError, _>(errors.join("\n")));
+        }
+
+        Ok(result_dict.unbind())
+    }
+
+    /// Validate a Python value against field constraints INLINE (no TurboValue conversion!)
+    /// Returns Ok(None) if valid (use original value), Ok(Some(coerced)) if coercion happened.
+    #[inline]
+    fn validate_field_inline(py: Python<'_>, field: &TurboField, value: &Bound<'_, PyAny>) -> PyResult<Option<Py<PyAny>>> {
+        if value.is_none() {
+            if field.required {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Required field '{}' cannot be None", field.name)
+                ));
+            }
+            return Ok(None);
+        }
+
+        match field.field_type {
+            FieldType::Int => {
+                if value.is_instance_of::<PyBool>() {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be an integer, not bool", field.name)
+                    ));
+                }
+                if let Ok(i) = value.extract::<i64>() {
+                    Self::check_numeric_inline(field, i as f64)?;
+                    return Ok(None);  // Already an int
+                } else if !field.strict {
+                    if let Ok(s) = value.downcast::<PyString>() {
+                        if let Ok(i) = s.to_str().unwrap_or("").trim().parse::<i64>() {
+                            Self::check_numeric_inline(field, i as f64)?;
+                            // Coerce string to int
+                            return Ok(Some(i.into_pyobject(py).unwrap().into_any().unbind()));
+                        } else {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must be an integer", field.name)
+                            ));
+                        }
+                    } else {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be an integer", field.name)
+                        ));
+                    }
+                } else {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be an integer", field.name)
+                    ));
+                }
+            }
+            FieldType::Float => {
+                if let Ok(f) = value.extract::<f64>() {
+                    if field.finite && (f.is_nan() || f.is_infinite()) {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be finite", field.name)
+                        ));
+                    }
+                    Self::check_numeric_inline(field, f)?;
+                    return Ok(None);
+                } else if !field.strict {
+                    if let Ok(s) = value.downcast::<PyString>() {
+                        if let Ok(f) = s.to_str().unwrap_or("").trim().parse::<f64>() {
+                            Self::check_numeric_inline(field, f)?;
+                            // Coerce string to float
+                            return Ok(Some(PyFloat::new(py, f).into_any().unbind()));
+                        } else {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must be a number", field.name)
+                            ));
+                        }
+                    } else {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be a number", field.name)
+                        ));
+                    }
+                } else {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a number", field.name)
+                    ));
+                }
+            }
+            FieldType::String => {
+                if let Ok(s) = value.downcast::<PyString>() {
+                    let s_str = s.to_str()?;
+                    // String constraints
+                    if let Some(min) = field.min_length {
+                        if s_str.trim().len() < min {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must have at least {} characters", field.name, min)
+                            ));
+                        }
+                    }
+                    if let Some(max) = field.max_length {
+                        if s_str.len() > max {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must have at most {} characters", field.name, max)
+                            ));
+                        }
+                    }
+                    if let Some(ref re) = field.compiled_pattern {
+                        if !re.is_match(s_str) {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' does not match pattern", field.name)
+                            ));
+                        }
+                    }
+                    if field.email && !fast_parse::validate_email_fast(s_str) {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be a valid email", field.name)
+                        ));
+                    }
+                    if field.url && !fast_parse::validate_url_fast(s_str) {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be a valid URL", field.name)
+                        ));
+                    }
+                    if let Some(ref vals) = field.enum_values {
+                        if !vals.iter().any(|v| v == s_str) {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must be one of: {:?}", field.name, vals)
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a string", field.name)
+                    ));
+                }
+            }
+            FieldType::Bool => {
+                if !value.is_exact_instance_of::<PyBool>() {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a boolean", field.name)
+                    ));
+                }
+            }
+            FieldType::List => {
+                if let Ok(list) = value.downcast::<PyList>() {
+                    if let Some(min) = field.min_items {
+                        if list.len() < min {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must have at least {} items", field.name, min)
+                            ));
+                        }
+                    }
+                    if let Some(max) = field.max_items {
+                        if list.len() > max {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must have at most {} items", field.name, max)
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a list", field.name)
+                    ));
+                }
+            }
+            FieldType::Dict => {
+                if value.downcast::<PyDict>().is_err() {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a dict", field.name)
+                    ));
+                }
+            }
+            FieldType::Decimal => {
+                // Accept string, int, float — validate numeric constraints
+                if let Ok(s) = value.downcast::<PyString>() {
+                    let s_str = s.to_str()?;
+                    if let Ok(f) = s_str.trim().parse::<f64>() {
+                        Self::check_numeric_inline(field, f)?;
+                    } else if s_str.trim() != "NaN" && s_str.trim() != "Infinity" {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be a valid decimal", field.name)
+                        ));
+                    }
+                } else if let Ok(i) = value.extract::<i64>() {
+                    Self::check_numeric_inline(field, i as f64)?;
+                } else if let Ok(f) = value.extract::<f64>() {
+                    Self::check_numeric_inline(field, f)?;
+                } else {
+                    // Try string repr from Decimal object
+                    if value.str().is_err() {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be a Decimal", field.name)
+                        ));
+                    }
+                }
+            }
+            FieldType::Any => {
+                // Accept anything
+            }
+        }
+        Ok(None)
+    }
+
+    /// Numeric constraint check (shared by Int, Float, Decimal) — inline version
+    #[inline]
+    fn check_numeric_inline(field: &TurboField, val: f64) -> PyResult<()> {
+        if let Some(gt) = field.gt {
+            if val <= gt {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be > {}", field.name, gt)
+                ));
+            }
+        }
+        if let Some(ge) = field.ge {
+            if val < ge {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be >= {}", field.name, ge)
+                ));
+            }
+        }
+        if let Some(lt) = field.lt {
+            if val >= lt {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be < {}", field.name, lt)
+                ));
+            }
+        }
+        if let Some(le) = field.le {
+            if val > le {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be <= {}", field.name, le)
+                ));
+            }
+        }
+        if let Some(multiple_of) = field.multiple_of {
+            if multiple_of != 0.0 && (val % multiple_of).abs() > f64::EPSILON {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a multiple of {}", field.name, multiple_of)
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Convert a serde_json Object to a validated PyDict (for JSON bytes path)
