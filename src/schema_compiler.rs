@@ -241,7 +241,7 @@ impl CompiledSchema {
         
         // Get __annotations__ to extract field types
         if let Ok(annotations) = py_class.getattr("__annotations__") {
-            let annotations_dict = annotations.downcast::<PyDict>()?;
+            let annotations_dict = annotations.cast::<PyDict>()?;
             
             for (idx, (field_name, field_type)) in annotations_dict.iter().enumerate() {
                 let name_str = field_name.extract::<String>()?;
@@ -249,7 +249,7 @@ impl CompiledSchema {
                 
                 // Check if field is required by looking at the Field object in __fields__
                 let required = if let Ok(fields_dict) = py_class.getattr("__fields__") {
-                    if let Ok(dict) = fields_dict.downcast::<PyDict>() {
+                    if let Ok(dict) = fields_dict.cast::<PyDict>() {
                         if let Ok(Some(field_obj)) = dict.get_item(&name_str) {
                             // Check if it's a Field object with a required attribute
                             if let Ok(req) = field_obj.getattr("required") {
@@ -300,7 +300,7 @@ impl CompiledSchema {
         
         // Try to get the Field object from __fields__ dict
         let field_obj = if let Ok(fields_dict) = py_class.getattr("__fields__") {
-            if let Ok(dict) = fields_dict.downcast::<PyDict>() {
+            if let Ok(dict) = fields_dict.cast::<PyDict>() {
                 dict.get_item(field_name)?.map(|item| item.to_owned())
             } else {
                 None

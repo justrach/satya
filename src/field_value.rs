@@ -113,7 +113,7 @@ impl FieldValue {
                 ))
             }
             FieldType::List(inner_type) => {
-                let py_list = value.downcast::<PyList>()?;
+                let py_list = value.cast::<PyList>()?;
                 let mut items = Vec::with_capacity(py_list.len());
                 for item in py_list.iter() {
                     items.push(Self::from_python(py, &item, inner_type)?);
@@ -121,7 +121,7 @@ impl FieldValue {
                 Ok(FieldValue::List(items))
             }
             FieldType::Dict(inner_type) => {
-                let py_dict = value.downcast::<PyDict>()?;
+                let py_dict = value.cast::<PyDict>()?;
                 let mut map = HashMap::new();
                 for (k, v) in py_dict.iter() {
                     let key = k.extract::<String>()?;
@@ -141,14 +141,14 @@ impl FieldValue {
                 } else if value.is_instance_of::<PyString>() {
                     Ok(FieldValue::String(value.extract()?))
                 } else if value.is_instance_of::<PyList>() {
-                    let py_list = value.downcast::<PyList>()?;
+                    let py_list = value.cast::<PyList>()?;
                     let mut items = Vec::with_capacity(py_list.len());
                     for item in py_list.iter() {
                         items.push(Self::from_python(py, &item, &FieldType::Any)?);
                     }
                     Ok(FieldValue::List(items))
                 } else if value.is_instance_of::<PyDict>() {
-                    let py_dict = value.downcast::<PyDict>()?;
+                    let py_dict = value.cast::<PyDict>()?;
                     let mut map = HashMap::new();
                     for (k, v) in py_dict.iter() {
                         let key = k.extract::<String>()?;

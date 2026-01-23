@@ -442,7 +442,7 @@ impl BlazeValidator {
     #[inline(always)]
     fn validate_string(&self, field: &BlazeField, value: &Bound<'_, PyAny>) -> PyResult<()> {
         // Zero-copy: borrow directly from Python string object instead of allocating
-        let py_str = value.downcast::<PyString>()?;
+        let py_str = value.cast::<PyString>()?;
         let str_val = py_str.to_str()?;
 
         if let Some(min_len) = field.min_length {
@@ -499,7 +499,7 @@ impl BlazeValidator {
     /// Validate list constraints
     #[inline(always)]
     fn validate_list(&self, field: &BlazeField, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        let list = value.downcast::<PyList>()?;
+        let list = value.cast::<PyList>()?;
         let len = list.len();
         
         if let Some(min_items) = field.min_items {

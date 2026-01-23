@@ -27,7 +27,7 @@ pub enum FieldValue {
 }
 
 impl FieldValue {
-    fn to_python(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_python(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         match self {
             FieldValue::Int(i) => Ok(i.into_pyobject(py)?.into_any().unbind()),
             FieldValue::Float(f) => Ok(f.into_pyobject(py)?.into_any().unbind()),
@@ -161,7 +161,7 @@ impl NativeModelValidator {
         use pyo3::types::{PyInt, PyFloat, PyBool, PyString};
         
         // Try int
-        if let Ok(i) = value.downcast::<PyInt>() {
+        if let Ok(i) = value.cast::<PyInt>() {
             if !value.is_instance_of::<PyBool>() {
                 let val = i.extract::<i64>()?;
                 self.validate_numeric(field, val as f64)?;
@@ -170,14 +170,14 @@ impl NativeModelValidator {
         }
         
         // Try float
-        if let Ok(f) = value.downcast::<PyFloat>() {
+        if let Ok(f) = value.cast::<PyFloat>() {
             let val = f.extract::<f64>()?;
             self.validate_numeric(field, val)?;
             return Ok(FieldValue::Float(val));
         }
         
         // Try string (with coercion)
-        if let Ok(s) = value.downcast::<PyString>() {
+        if let Ok(s) = value.cast::<PyString>() {
             let val = s.to_string();
             self.validate_string(field, &val)?;
             return Ok(FieldValue::String(val));
@@ -188,7 +188,7 @@ impl NativeModelValidator {
         }
         
         // Try bool
-        if let Ok(b) = value.downcast::<PyBool>() {
+        if let Ok(b) = value.cast::<PyBool>() {
             let val = b.extract::<bool>()?;
             return Ok(FieldValue::Bool(val));
         }
@@ -288,7 +288,7 @@ impl NativeModelValidator {
             // Small batch - sequential
             let mut results = Vec::with_capacity(len);
             for item in data_list.iter() {
-                let dict = item.downcast::<PyDict>()?;
+                let dict = item.cast::<PyDict>()?;
                 results.push(self.validate_and_create(py, dict)?);
             }
             return Ok(results);
@@ -297,14 +297,14 @@ impl NativeModelValidator {
         // Large batch - parallel
         let dicts: Vec<Py<PyDict>> = data_list
             .iter()
-            .map(|item| item.downcast::<PyDict>().unwrap().clone().unbind())
+            .map(|item| item.cast::<PyDict>().unwrap().clone().unbind())
             .collect();
         
         let validator = self.clone();
         let results: Vec<NativeModelInstance> = py.detach(|| {
             dicts.par_iter()
                 .map(|dict_py| {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         let dict = dict_py.bind(py);
                         validator.validate_and_create(py, dict)
                     })
@@ -336,7 +336,7 @@ pub struct NativeModelInstance {
 #[pymethods]
 impl NativeModelInstance {
     /// Get field value by name (fast!)
-    fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<PyObject> {
+    fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<Py<PyAny>> {
         if let Some(&idx) = self.validator.field_map.get(&name) {
             self.values[idx].to_python(py)
         } else {

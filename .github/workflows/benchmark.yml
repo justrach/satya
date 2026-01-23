@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
       fail-fast: false
 
     steps:
@@ -20,6 +20,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -36,14 +37,16 @@ jobs:
         run: maturin build --release -i python --out dist && pip install dist/*.whl
 
       - name: Run benchmark
+        working-directory: /tmp
         run: |
           echo "## Python ${{ matrix.python-version }} Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          python tests/benchmark_vs_pydantic.py 2>&1 | tee benchmark_output.txt
+          python $GITHUB_WORKSPACE/tests/benchmark_vs_pydantic.py 2>&1 | tee benchmark_output.txt
           cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Extract key metrics
+        working-directory: /tmp
         run: |
           python -c "
           import re, json
@@ -71,8 +74,8 @@ jobs:
         with:
           name: benchmark-py${{ matrix.python-version }}
           path: |
-            benchmark_output.txt
-            metrics.json
+            /tmp/benchmark_output.txt
+            /tmp/metrics.json
 
   benchmark-free-threaded:
     runs-on: ubuntu-latest
@@ -100,10 +103,11 @@ jobs:
         run: maturin build --release -i python --out dist && pip install dist/*.whl
 
       - name: Run benchmark
+        working-directory: /tmp
         run: |
           echo "## Python 3.13t (free-threaded) Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          python tests/benchmark_vs_pydantic.py 2>&1 | tee benchmark_output.txt
+          python $GITHUB_WORKSPACE/tests/benchmark_vs_pydantic.py 2>&1 | tee benchmark_output.txt
           cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
@@ -150,7 +154,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: benchmark-py3.13t
-          path: benchmark_output.txt
+          path: /tmp/benchmark_output.txt
 
   summary:
     runs-on: ubuntu-latest
@@ -168,7 +172,7 @@ jobs:
           echo "| Python | Geometric Mean | Raw validate_check | model_dump |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|---------------|-------------------|------------|" >> $GITHUB_STEP_SUMMARY
 
-          for version in 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             if [ -f "results/benchmark-py${version}/metrics.json" ]; then
               python3 -c "
           import json

@@ -36,7 +36,7 @@ pub enum TurboValue {
 
 impl TurboValue {
     /// Convert to Python object (lazy — only called on attribute access)
-    pub fn to_python(&self, py: Python<'_>) -> PyResult<PyObject> {
+    pub fn to_python(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         match self {
             TurboValue::Int(i) => Ok(i.into_pyobject(py).unwrap().into_any().unbind()),
             TurboValue::Float(f) => Ok(PyFloat::new(py, *f).into_any().unbind()),
@@ -82,17 +82,17 @@ impl TurboValue {
         if let Ok(f) = value.extract::<f64>() {
             return Ok(TurboValue::Float(f));
         }
-        if let Ok(s) = value.downcast::<PyString>() {
+        if let Ok(s) = value.cast::<PyString>() {
             return Ok(TurboValue::Str(s.to_str()?.to_owned()));
         }
-        if let Ok(list) = value.downcast::<PyList>() {
+        if let Ok(list) = value.cast::<PyList>() {
             let mut items = Vec::with_capacity(list.len());
             for item in list.iter() {
                 items.push(TurboValue::from_py_any(&item)?);
             }
             return Ok(TurboValue::List(items));
         }
-        if let Ok(dict) = value.downcast::<PyDict>() {
+        if let Ok(dict) = value.cast::<PyDict>() {
             let mut pairs = Vec::with_capacity(dict.len());
             for (k, v) in dict.iter() {
                 let key = k.extract::<String>()?;
@@ -424,7 +424,7 @@ impl TurboValidatorPy {
 
         // Single-pass: validate + write directly to target
         for (key, value) in data.iter() {
-            let key_str = match key.downcast::<PyString>() {
+            let key_str = match key.cast::<PyString>() {
                 Ok(s) => match s.to_str() {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -437,7 +437,7 @@ impl TurboValidatorPy {
                 match Self::validate_field_inline(py, field, &value) {
                     Ok(coerced) => {
                         if let Some(ref nested_schema) = field.nested_schema {
-                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                            if let Ok(nested_dict) = value.cast::<PyDict>() {
                                 let empty_defaults = HashMap::new();
                                 match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
                                     Ok(validated_nested) => {
@@ -473,7 +473,7 @@ impl TurboValidatorPy {
         // Check required + apply defaults
         for field in &schema.fields {
             if found & (1u64 << field.index) == 0 {
-                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = self.defaults.get(&field.name) {
                     Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
                 } else if field.required {
                     let msg = format!("Required field '{}' is missing", field.name);
@@ -497,7 +497,7 @@ impl TurboValidatorPy {
     /// Fast validate that returns errors as a list instead of raising exceptions.
     /// Returns None on success, or a list of (field_name, message) tuples on validation failure.
     /// This eliminates Python try/except overhead and string parsing.
-    fn validate_into_dict_result(&self, py: Python<'_>, data: &Bound<'_, PyDict>, target: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+    fn validate_into_dict_result(&self, py: Python<'_>, data: &Bound<'_, PyDict>, target: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
         let schema = self.schema.as_ref().ok_or_else(|| {
             PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
         })?;
@@ -506,7 +506,7 @@ impl TurboValidatorPy {
         let mut errors: Option<Vec<(&str, String)>> = None;
 
         for (key, value) in data.iter() {
-            let key_str = match key.downcast::<PyString>() {
+            let key_str = match key.cast::<PyString>() {
                 Ok(s) => match s.to_str() {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -519,7 +519,7 @@ impl TurboValidatorPy {
                 match Self::validate_field_inline(py, field, &value) {
                     Ok(coerced) => {
                         if let Some(ref nested_schema) = field.nested_schema {
-                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                            if let Ok(nested_dict) = value.cast::<PyDict>() {
                                 let empty_defaults = HashMap::new();
                                 match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
                                     Ok(validated_nested) => {
@@ -555,7 +555,7 @@ impl TurboValidatorPy {
         // Check required + apply defaults
         for field in &schema.fields {
             if found & (1u64 << field.index) == 0 {
-                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = self.defaults.get(&field.name) {
                     Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
                 } else if field.required {
                     errors.get_or_insert_with(Vec::new).push(
@@ -584,7 +584,7 @@ impl TurboValidatorPy {
         data: &Bound<'_, PyDict>,
         target: &Bound<'_, PyDict>,
         nested_targets: &Bound<'_, PyDict>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let schema = self.schema.as_ref().ok_or_else(|| {
             PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
         })?;
@@ -592,7 +592,7 @@ impl TurboValidatorPy {
         let mut errors: Option<Vec<(&str, String)>> = None;
 
         for (key, value) in data.iter() {
-            let key_str = match key.downcast::<PyString>() {
+            let key_str = match key.cast::<PyString>() {
                 Ok(s) => match s.to_str() {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -606,13 +606,13 @@ impl TurboValidatorPy {
                     Ok(coerced) => {
                         if let Some(ref nested_schema) = field.nested_schema {
                             // Write directly to nested instance's __dict__
-                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                            if let Ok(nested_dict) = value.cast::<PyDict>() {
                                 if let Ok(Some(nested_target_obj)) = nested_targets.get_item(key_str) {
-                                    if let Ok(nested_target) = nested_target_obj.downcast::<PyDict>() {
+                                    if let Ok(nested_target) = nested_target_obj.cast::<PyDict>() {
                                         // Single-pass: validate + track found fields
                                         let mut nested_found: u64 = 0;
                                         for (nkey, nval) in nested_dict.iter() {
-                                            let nkey_str = match nkey.downcast::<PyString>() {
+                                            let nkey_str = match nkey.cast::<PyString>() {
                                                 Ok(s) => match s.to_str() {
                                                     Ok(s) => s,
                                                     Err(_) => continue,
@@ -696,7 +696,7 @@ impl TurboValidatorPy {
         // Check required + apply defaults for parent
         for field in &schema.fields {
             if found & (1u64 << field.index) == 0 {
-                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = self.defaults.get(&field.name) {
                     Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
                 } else if field.required {
                     errors.get_or_insert_with(Vec::new).push(
@@ -760,7 +760,7 @@ impl TurboValidatorPy {
             first = false;
             // Write key directly
             out.push('"');
-            if let Ok(s) = key.downcast::<PyString>() {
+            if let Ok(s) = key.cast::<PyString>() {
                 out.push_str(s.to_str()?);
             } else {
                 let s = key.str()?;
@@ -793,11 +793,11 @@ impl TurboValidatorPy {
         })?;
 
         // Parse JSON directly from borrowed data (zero-copy!)
-        let json_value: serde_json::Value = if let Ok(b) = data.downcast::<pyo3::types::PyBytes>() {
+        let json_value: serde_json::Value = if let Ok(b) = data.cast::<pyo3::types::PyBytes>() {
             serde_json::from_slice(b.as_bytes()).map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
             })?
-        } else if let Ok(s) = data.downcast::<PyString>() {
+        } else if let Ok(s) = data.cast::<PyString>() {
             serde_json::from_str(s.to_str()?).map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
             })?
@@ -822,11 +822,11 @@ impl TurboValidatorPy {
         })?;
 
         // Parse JSON directly from borrowed data (zero-copy, no Vec allocation!)
-        let json_value: serde_json::Value = if let Ok(b) = data.downcast::<pyo3::types::PyBytes>() {
+        let json_value: serde_json::Value = if let Ok(b) = data.cast::<pyo3::types::PyBytes>() {
             serde_json::from_slice(b.as_bytes()).map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
             })?
-        } else if let Ok(s) = data.downcast::<PyString>() {
+        } else if let Ok(s) = data.cast::<PyString>() {
             serde_json::from_str(s.to_str()?).map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
             })?
@@ -847,7 +847,7 @@ impl TurboValidatorPy {
                 let field = &schema.fields[idx];
                 let py_val = Self::json_value_to_validated_py(py, field, json_val)?;
                 if let Some(ref nested_schema) = field.nested_schema {
-                    if let serde_json::Value::Object(ref nested_obj) = json_val {
+                    if let serde_json::Value::Object(nested_obj) = json_val {
                         let empty_defaults = HashMap::new();
                         let validated_nested = Self::json_object_to_validated_dict(py, nested_schema, nested_obj, &empty_defaults)?;
                         target.set_item(key, validated_nested)?;
@@ -872,7 +872,7 @@ impl TurboValidatorPy {
                         format!("Required field '{}' is missing", field.name)
                     ));
                 }
-                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = self.defaults.get(&field.name) {
                     Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
                 }
             }
@@ -889,7 +889,7 @@ impl TurboValidatorPy {
         cls: &Bound<'_, PyAny>,
         data: &Bound<'_, PyDict>,
         nested_classes: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let schema = self.schema.as_ref().ok_or_else(|| {
             PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
         })?;
@@ -900,11 +900,11 @@ impl TurboValidatorPy {
         // 1. Create instance via cls.__new__(cls) — same as Pydantic-core
         let instance = cls.call_method1("__new__", (cls,))?;
         let instance_dict_any = instance.getattr("__dict__")?;
-        let instance_dict = instance_dict_any.downcast::<PyDict>()?;
+        let instance_dict = instance_dict_any.cast::<PyDict>()?;
 
         // 2. Single-pass: validate + write directly to instance.__dict__
         for (key, value) in data.iter() {
-            let key_str = match key.downcast::<PyString>() {
+            let key_str = match key.cast::<PyString>() {
                 Ok(s) => match s.to_str() {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -917,18 +917,18 @@ impl TurboValidatorPy {
                 match Self::validate_field_inline(py, field, &value) {
                     Ok(coerced) => {
                         if let Some(ref nested_schema) = field.nested_schema {
-                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                            if let Ok(nested_dict) = value.cast::<PyDict>() {
                                 // Try to construct nested Model instance
                                 if let Some(nc) = nested_classes {
                                     if let Ok(Some(nested_cls)) = nc.get_item(key_str) {
                                         // Get the nested turbo validator
                                         if let Ok(nested_turbo_any) = nested_cls.getattr("__turbo__") {
                                             if !nested_turbo_any.is_none() {
-                                                if let Ok(nested_turbo) = nested_turbo_any.downcast::<TurboValidatorPy>() {
+                                                if let Ok(nested_turbo) = nested_turbo_any.cast::<TurboValidatorPy>() {
                                                     // Get nested class's own __nested_fields__ for recursive construction
                                                     let nested_nested = nested_cls.getattr("__nested_fields__")
                                                         .ok()
-                                                        .and_then(|v| if v.is_none() { None } else { v.downcast::<PyDict>().ok().map(|d| d.clone()) });
+                                                        .and_then(|v| if v.is_none() { None } else { v.cast::<PyDict>().ok().map(|d| d.clone()) });
                                                     let nested_nc = nested_nested.as_ref().and_then(|d| if d.is_empty() { None } else { Some(d) });
                                                     // Recursively construct nested model instance!
                                                     match nested_turbo.borrow().validate_and_construct(py, &nested_cls, nested_dict, nested_nc) {
@@ -1019,7 +1019,7 @@ impl TurboValidatorPy {
                     errors.push(format!("Required field '{}' is missing", field.name));
                     continue;
                 }
-                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = self.defaults.get(&field.name) {
                     Self::apply_default(py, instance_dict, &field.name, default_val, *is_mutable)?;
                 }
             }
@@ -1041,17 +1041,17 @@ impl TurboValidatorPy {
         cls: &Bound<'_, PyAny>,
         json_data: &Bound<'_, PyAny>,
         nested_classes: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let schema = self.schema.as_ref().ok_or_else(|| {
             PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
         })?;
 
         // Parse JSON directly from borrowed data (zero-copy!)
-        let json_value: serde_json::Value = if let Ok(b) = json_data.downcast::<PyBytes>() {
+        let json_value: serde_json::Value = if let Ok(b) = json_data.cast::<PyBytes>() {
             serde_json::from_slice(b.as_bytes()).map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
             })?
-        } else if let Ok(s) = json_data.downcast::<PyString>() {
+        } else if let Ok(s) = json_data.cast::<PyString>() {
             serde_json::from_str(s.to_str()?).map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
             })?
@@ -1067,7 +1067,7 @@ impl TurboValidatorPy {
         // Create instance via cls.__new__(cls)
         let instance = cls.call_method1("__new__", (cls,))?;
         let instance_dict_any = instance.getattr("__dict__")?;
-        let instance_dict = instance_dict_any.downcast::<PyDict>()?;
+        let instance_dict = instance_dict_any.cast::<PyDict>()?;
 
         // Validate and populate __dict__ directly
         let mut found = vec![false; schema.fields.len()];
@@ -1075,17 +1075,17 @@ impl TurboValidatorPy {
             if let Some(&idx) = schema.field_map.get(key) {
                 let field = &schema.fields[idx];
                 if let Some(ref nested_schema) = field.nested_schema {
-                    if let serde_json::Value::Object(ref nested_obj) = json_val {
+                    if let serde_json::Value::Object(nested_obj) = json_val {
                         // Try to construct nested Model instance
                         if let Some(nc) = nested_classes {
                             if let Ok(Some(nested_cls)) = nc.get_item(key) {
                                 if let Ok(nested_turbo_any) = nested_cls.getattr("__turbo__") {
                                     if !nested_turbo_any.is_none() {
-                                        if let Ok(nested_turbo) = nested_turbo_any.downcast::<TurboValidatorPy>() {
+                                        if let Ok(nested_turbo) = nested_turbo_any.cast::<TurboValidatorPy>() {
                                             // Create nested instance
                                             let nested_instance_obj = nested_cls.call_method1("__new__", (&nested_cls,))?;
                                             let nested_dict_any = nested_instance_obj.getattr("__dict__")?;
-                                            let nested_dict = nested_dict_any.downcast::<PyDict>()?;
+                                            let nested_dict = nested_dict_any.cast::<PyDict>()?;
                                             let nested_defaults = &nested_turbo.borrow().defaults;
                                             // Validate nested fields
                                             let mut nested_found = vec![false; nested_schema.fields.len()];
@@ -1100,7 +1100,7 @@ impl TurboValidatorPy {
                                             // Apply nested defaults
                                             for nfield in &nested_schema.fields {
                                                 if !nested_found[nfield.index] {
-                                                    if let Some((ref dv, im)) = nested_defaults.get(&nfield.name) {
+                                                    if let Some((dv, im)) = nested_defaults.get(&nfield.name) {
                                                         Self::apply_default(py, nested_dict, &nfield.name, dv, *im)?;
                                                     } else if nfield.required {
                                                         return Err(PyErr::new::<PyValueError, _>(
@@ -1144,7 +1144,7 @@ impl TurboValidatorPy {
                         format!("Required field '{}' is missing", field.name)
                     ));
                 }
-                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = self.defaults.get(&field.name) {
                     Self::apply_default(py, instance_dict, &field.name, default_val, *is_mutable)?;
                 }
             }
@@ -1164,7 +1164,7 @@ impl TurboValidatorPy {
     /// Ultra-fast validate: zero allocation, type-check only for unconstrained fields.
     /// Returns None on success, raises ValueError on failure.
     /// ~40% faster than validate() for unconstrained models.
-    fn validate_check(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+    fn validate_check(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
         let schema = self.schema.as_ref().ok_or_else(|| {
             PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
         })?;
@@ -1231,7 +1231,7 @@ impl TurboValidatorPy {
 
         let mut results = Vec::with_capacity(data_list.len());
         for item in data_list.iter() {
-            let dict = match item.downcast::<PyDict>() {
+            let dict = match item.cast::<PyDict>() {
                 Ok(d) => d,
                 Err(_) => {
                     results.push(false);
@@ -1302,7 +1302,7 @@ impl TurboValidatorPy {
 
         let mut results = Vec::with_capacity(data_list.len());
         for item in data_list.iter() {
-            let dict = item.downcast::<PyDict>().map_err(|_| {
+            let dict = item.cast::<PyDict>().map_err(|_| {
                 PyErr::new::<PyValueError, _>("Batch items must be dicts")
             })?;
             results.push(Self::validate_inner(py, schema, dict)?);
@@ -1326,7 +1326,7 @@ impl TurboValidatorPy {
         // ═══ PHASE 1: Bulk extract (single dict iteration, minimal FFI) ═══
         for (key, value) in data.iter() {
             // Key must be a string
-            let key_str = match key.downcast::<PyString>() {
+            let key_str = match key.cast::<PyString>() {
                 Ok(s) => match s.to_str() {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -1385,7 +1385,7 @@ impl TurboValidatorPy {
 
         // ═══ PHASE 1: Single-pass dict iteration — validate + copy to result dict ═══
         for (key, value) in data.iter() {
-            let key_str = match key.downcast::<PyString>() {
+            let key_str = match key.cast::<PyString>() {
                 Ok(s) => match s.to_str() {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -1399,7 +1399,7 @@ impl TurboValidatorPy {
                 match Self::validate_field_inline(py, field, &value) {
                     Ok(coerced) => {
                         if let Some(ref nested_schema) = field.nested_schema {
-                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                            if let Ok(nested_dict) = value.cast::<PyDict>() {
                                 let empty_defaults = HashMap::new();
                                 match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
                                     Ok(validated_nested) => {
@@ -1437,7 +1437,7 @@ impl TurboValidatorPy {
                     errors.push(format!("Required field '{}' is missing", field.name));
                     continue;
                 }
-                if let Some((ref default_val, is_mutable)) = defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = defaults.get(&field.name) {
                     Self::apply_default(py, &result_dict, &field.name, default_val, *is_mutable)?;
                 }
             }
@@ -1475,7 +1475,7 @@ impl TurboValidatorPy {
                     Self::check_numeric_inline(field, i as f64)?;
                     return Ok(None);  // Already an int
                 } else if !field.strict {
-                    if let Ok(s) = value.downcast::<PyString>() {
+                    if let Ok(s) = value.cast::<PyString>() {
                         if let Ok(i) = s.to_str().unwrap_or("").trim().parse::<i64>() {
                             Self::check_numeric_inline(field, i as f64)?;
                             // Coerce string to int
@@ -1506,7 +1506,7 @@ impl TurboValidatorPy {
                     Self::check_numeric_inline(field, f)?;
                     return Ok(None);
                 } else if !field.strict {
-                    if let Ok(s) = value.downcast::<PyString>() {
+                    if let Ok(s) = value.cast::<PyString>() {
                         if let Ok(f) = s.to_str().unwrap_or("").trim().parse::<f64>() {
                             Self::check_numeric_inline(field, f)?;
                             // Coerce string to float
@@ -1528,7 +1528,7 @@ impl TurboValidatorPy {
                 }
             }
             FieldType::String => {
-                if let Ok(s) = value.downcast::<PyString>() {
+                if let Ok(s) = value.cast::<PyString>() {
                     let s_str = s.to_str()?;
                     // String constraints
                     if let Some(min) = field.min_length {
@@ -1583,7 +1583,7 @@ impl TurboValidatorPy {
                 }
             }
             FieldType::List => {
-                if let Ok(list) = value.downcast::<PyList>() {
+                if let Ok(list) = value.cast::<PyList>() {
                     if let Some(min) = field.min_items {
                         if list.len() < min {
                             return Err(PyErr::new::<PyValueError, _>(
@@ -1605,7 +1605,7 @@ impl TurboValidatorPy {
                 }
             }
             FieldType::Dict => {
-                if value.downcast::<PyDict>().is_err() {
+                if value.cast::<PyDict>().is_err() {
                     return Err(PyErr::new::<PyValueError, _>(
                         format!("Field '{}' must be a dict", field.name)
                     ));
@@ -1613,7 +1613,7 @@ impl TurboValidatorPy {
             }
             FieldType::Decimal => {
                 // Accept string, int, float — validate numeric constraints
-                if let Ok(s) = value.downcast::<PyString>() {
+                if let Ok(s) = value.cast::<PyString>() {
                     let s_str = s.to_str()?;
                     if let Ok(f) = s_str.trim().parse::<f64>() {
                         Self::check_numeric_inline(field, f)?;
@@ -1700,7 +1700,7 @@ impl TurboValidatorPy {
                 let py_val = Self::json_value_to_validated_py(py, field, json_val)?;
                 // For nested schemas, recursively validate
                 if let Some(ref nested_schema) = field.nested_schema {
-                    if let serde_json::Value::Object(ref nested_obj) = json_val {
+                    if let serde_json::Value::Object(nested_obj) = json_val {
                         let empty_defaults = HashMap::new();
                         let validated_nested = Self::json_object_to_validated_dict(py, nested_schema, nested_obj, &empty_defaults)?;
                         result_dict.set_item(key, validated_nested)?;
@@ -1725,7 +1725,7 @@ impl TurboValidatorPy {
                         format!("Required field '{}' is missing", field.name)
                     ));
                 }
-                if let Some((ref default_val, is_mutable)) = defaults.get(&field.name) {
+                if let Some((default_val, is_mutable)) = defaults.get(&field.name) {
                     Self::apply_default(py, &result_dict, &field.name, default_val, *is_mutable)?;
                 }
             }
@@ -1961,7 +1961,7 @@ impl TurboValidatorPy {
                     return Ok(TurboValue::Int(i));
                 }
                 if !field.strict {
-                    if let Ok(s) = value.downcast::<PyString>() {
+                    if let Ok(s) = value.cast::<PyString>() {
                         if let Ok(i) = s.to_str().unwrap_or("").trim().parse::<i64>() {
                             return Ok(TurboValue::Int(i));
                         }
@@ -1976,7 +1976,7 @@ impl TurboValidatorPy {
                     return Ok(TurboValue::Float(f));
                 }
                 if !field.strict {
-                    if let Ok(s) = value.downcast::<PyString>() {
+                    if let Ok(s) = value.cast::<PyString>() {
                         if let Ok(f) = s.to_str().unwrap_or("").trim().parse::<f64>() {
                             return Ok(TurboValue::Float(f));
                         }
@@ -1987,7 +1987,7 @@ impl TurboValidatorPy {
                 ))
             }
             FieldType::String => {
-                if let Ok(s) = value.downcast::<PyString>() {
+                if let Ok(s) = value.cast::<PyString>() {
                     return Ok(TurboValue::Str(s.to_str()?.to_owned()));
                 }
                 Err(PyErr::new::<PyValueError, _>(
@@ -2003,7 +2003,7 @@ impl TurboValidatorPy {
                 ))
             }
             FieldType::List => {
-                if let Ok(list) = value.downcast::<PyList>() {
+                if let Ok(list) = value.cast::<PyList>() {
                     let mut items = Vec::with_capacity(list.len());
                     for item in list.iter() {
                         items.push(TurboValue::from_py_any(&item)?);
@@ -2015,7 +2015,7 @@ impl TurboValidatorPy {
                 ))
             }
             FieldType::Dict => {
-                if let Ok(dict) = value.downcast::<PyDict>() {
+                if let Ok(dict) = value.cast::<PyDict>() {
                     let mut pairs = Vec::with_capacity(dict.len());
                     for (k, v) in dict.iter() {
                         let key = k.extract::<String>()?;
@@ -2030,7 +2030,7 @@ impl TurboValidatorPy {
             }
             FieldType::Decimal => {
                 // Accept string, int, float — store as string for precision
-                if let Ok(s) = value.downcast::<PyString>() {
+                if let Ok(s) = value.cast::<PyString>() {
                     let s_str = s.to_str()?.to_owned();
                     // Validate it parses as a number
                     if s_str.trim().parse::<f64>().is_ok() || s_str.trim() == "NaN" || s_str.trim() == "Infinity" {
@@ -2158,7 +2158,7 @@ impl TurboValidatorPy {
     fn write_py_value_json(py: Python<'_>, value: &Bound<'_, PyAny>, out: &mut String) -> PyResult<()> {
         // Type check order optimized for typical API model data:
         // str (most common) → int → bool (before int extraction!) → none → float → list → dict
-        if let Ok(s) = value.downcast::<PyString>() {
+        if let Ok(s) = value.cast::<PyString>() {
             let s_str = s.to_str()?;
             out.push('"');
             // Fast path: no escaping needed for simple ASCII strings
@@ -2210,7 +2210,7 @@ impl TurboValidatorPy {
             }
             return Ok(());
         }
-        if let Ok(list) = value.downcast::<PyList>() {
+        if let Ok(list) = value.cast::<PyList>() {
             out.push('[');
             for (i, item) in list.iter().enumerate() {
                 if i > 0 { out.push(','); }
@@ -2219,7 +2219,7 @@ impl TurboValidatorPy {
             out.push(']');
             return Ok(());
         }
-        if let Ok(dict) = value.downcast::<PyDict>() {
+        if let Ok(dict) = value.cast::<PyDict>() {
             out.push('{');
             let mut first = true;
             for (k, v) in dict.iter() {
@@ -2227,7 +2227,7 @@ impl TurboValidatorPy {
                 first = false;
                 // Key
                 out.push('"');
-                if let Ok(s) = k.downcast::<PyString>() {
+                if let Ok(s) = k.cast::<PyString>() {
                     out.push_str(s.to_str()?);
                 } else {
                     let s = k.str()?;
@@ -2251,7 +2251,7 @@ impl TurboValidatorPy {
     fn pydict_to_serde_value(py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<serde_json::Value> {
         let mut map = serde_json::Map::with_capacity(data.len());
         for (key, value) in data.iter() {
-            let key_str = if let Ok(s) = key.downcast::<PyString>() {
+            let key_str = if let Ok(s) = key.cast::<PyString>() {
                 s.to_str()?.to_owned()
             } else {
                 key.str()?.to_str()?.to_owned()
@@ -2284,17 +2284,17 @@ impl TurboValidatorPy {
                 return Ok(serde_json::Value::Null);
             }
         }
-        if let Ok(s) = value.downcast::<PyString>() {
+        if let Ok(s) = value.cast::<PyString>() {
             return Ok(serde_json::Value::String(s.to_str()?.to_owned()));
         }
-        if let Ok(list) = value.downcast::<PyList>() {
+        if let Ok(list) = value.cast::<PyList>() {
             let mut arr = Vec::with_capacity(list.len());
             for item in list.iter() {
                 arr.push(Self::pyany_to_serde_value(py, &item)?);
             }
             return Ok(serde_json::Value::Array(arr));
         }
-        if let Ok(dict) = value.downcast::<PyDict>() {
+        if let Ok(dict) = value.cast::<PyDict>() {
             return Self::pydict_to_serde_value(py, dict);
         }
         // Fallback: convert to string representation
@@ -2309,12 +2309,12 @@ impl TurboValidatorPy {
         if is_mutable {
             // Fast path: empty list/dict don't need deepcopy
             let dv = default_val.bind(py);
-            if let Ok(list) = dv.downcast::<PyList>() {
+            if let Ok(list) = dv.cast::<PyList>() {
                 if list.is_empty() {
                     target.set_item(field_name, PyList::empty(py))?;
                     return Ok(());
                 }
-            } else if let Ok(dict) = dv.downcast::<PyDict>() {
+            } else if let Ok(dict) = dv.cast::<PyDict>() {
                 if dict.is_empty() {
                     target.set_item(field_name, PyDict::new(py))?;
                     return Ok(());
@@ -2385,7 +2385,7 @@ pub struct TurboModelInstance {
 #[pymethods]
 impl TurboModelInstance {
     /// O(1) field access — converts to Python lazily
-    fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<PyObject> {
+    fn __getattr__(&self, py: Python<'_>, name: String) -> PyResult<Py<PyAny>> {
         if let Some(&idx) = self.schema.field_map.get(&name) {
             self.values[idx].to_python(py)
         } else {
@@ -2396,7 +2396,7 @@ impl TurboModelInstance {
     }
 
     /// Get a specific field by name
-    fn get_field(&self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
+    fn get_field(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
         if let Some(&idx) = self.schema.field_map.get(name) {
             self.values[idx].to_python(py)
         } else {

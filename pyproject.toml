@@ -39,4 +39,4 @@ Documentation = "https://github.com/rachpradhan/satya/blob/main/README.md"
 
 # Rust toolchain requirements
 [tool.maturin.rust]
-minimum-version = "1.70.0"
+minimum-version = "1.85.0"

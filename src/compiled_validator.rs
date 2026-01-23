@@ -237,7 +237,7 @@ impl CompiledValidator {
                         // Pattern validation would go here (requires regex crate)
                     }
                     CompiledFieldType::List => {
-                        if let Ok(list) = value.downcast::<PyList>() {
+                        if let Ok(list) = value.cast::<PyList>() {
                             let len = list.len();
                             if let Some(min_items) = field.min_items {
                                 if len < min_items {
@@ -344,7 +344,7 @@ impl BlazeCompiledValidator {
         if len < 1000 {
             let result_list = PyList::empty(py);
             for item in data_list.iter() {
-                let dict = item.downcast::<PyDict>()?;
+                let dict = item.cast::<PyDict>()?;
                 let validated = self.0.validate_fast(py, dict)?;
                 result_list.append(validated)?;
             }
@@ -354,7 +354,7 @@ impl BlazeCompiledValidator {
         // Convert Python list to Vec of Py<PyDict> for parallel processing
         let dicts: Vec<Py<PyDict>> = data_list
             .iter()
-            .map(|item| item.downcast::<PyDict>().unwrap().clone().unbind())
+            .map(|item| item.cast::<PyDict>().unwrap().clone().unbind())
             .collect();
         
         // PARALLEL VALIDATION with rayon!
@@ -382,7 +382,7 @@ impl BlazeCompiledValidator {
                     #[cfg(not(Py_GIL_DISABLED))]
                     {
                         // Python 3.12 and earlier: Acquire GIL
-                        Python::with_gil(|py| {
+                        Python::attach(|py| {
                             chunk.iter()
                                 .map(|dict_py| {
                                     let dict = dict_py.bind(py);

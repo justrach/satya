@@ -463,7 +463,7 @@ impl ModelValidator {
     /// Validate list constraints (min_items, max_items, unique_items)
     #[inline(always)]
     fn validate_list_constraints(&self, field: &FieldSpec, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        let list = value.downcast::<PyList>()?;
+        let list = value.cast::<PyList>()?;
         let len = list.len();
         
         if let Some(min_items) = field.min_items {
@@ -506,7 +506,7 @@ impl ModelValidator {
         if len < 1000 {
             let result_list = PyList::empty(py);
             for item in data_list.iter() {
-                let dict = item.downcast::<PyDict>()?;
+                let dict = item.cast::<PyDict>()?;
                 let validated = self.validate(py, dict)?;
                 result_list.append(validated)?;
             }
@@ -516,7 +516,7 @@ impl ModelValidator {
         // Parallel validation for large batches
         let dicts: Vec<Py<PyDict>> = data_list
             .iter()
-            .map(|item| item.downcast::<PyDict>().unwrap().clone().unbind())
+            .map(|item| item.cast::<PyDict>().unwrap().clone().unbind())
             .collect();
         
         const CHUNK_SIZE: usize = 1000;
@@ -524,7 +524,7 @@ impl ModelValidator {
         let results: Vec<Vec<Py<PyDict>>> = py.detach(|| {
             dicts.par_chunks(CHUNK_SIZE)
                 .map(|chunk| {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         chunk.iter()
                             .map(|dict_py| {
                                 let dict = dict_py.bind(py);
