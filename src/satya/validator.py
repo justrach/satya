@@ -481,7 +481,7 @@ class StreamValidator:
         else:
             text = data if isinstance(data, str) else None
 
-        def first_non_ws_char(s: str | None) -> str | None:
+        def first_non_ws_char(s):
             if not s:
                 return None
             for ch in s.lstrip():

@@ -264,6 +264,14 @@ class ModelMetaclass(type):
             if isinstance(base_fields, dict):
                 fields.update(base_fields)
         annotations = namespace.get('__annotations__', {})
+        if not annotations:
+            # Python 3.14+ (PEP 649): annotations are deferred via __annotate__
+            annotate_fn = namespace.get('__annotate__')
+            if annotate_fn is not None:
+                try:
+                    annotations = annotate_fn(1)  # Format.VALUE
+                except Exception:
+                    annotations = {}
         
         # Check if this model can use fast path
         has_validators = any(
