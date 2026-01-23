@@ -264,15 +264,7 @@ class ModelMetaclass(type):
             if isinstance(base_fields, dict):
                 fields.update(base_fields)
         annotations = namespace.get('__annotations__', {})
-        if not annotations:
-            # Python 3.14+ (PEP 649): annotations are deferred via __annotate__
-            annotate_fn = namespace.get('__annotate__')
-            if annotate_fn is not None:
-                try:
-                    annotations = annotate_fn(1)  # Format.VALUE
-                except Exception:
-                    annotations = {}
-        
+
         # Check if this model can use fast path
         has_validators = any(
             hasattr(getattr(namespace.get(attr_name), '__func__', None), '__validator_metadata__') or
@@ -414,8 +406,90 @@ class ModelMetaclass(type):
         # PYDANTIC-STYLE: Cache validator core at class level (no method call overhead!)
         # This will be set lazily on first use
         namespace['__satya_validator_core__'] = None
-        
-        return super().__new__(mcs, name, bases, namespace)
+
+        cls = super().__new__(mcs, name, bases, namespace)
+
+        # Python 3.14+ (PEP 649): annotations are deferred until after type.__new__()
+        # If no annotations were found in namespace, access cls.__annotations__
+        # which triggers lazy evaluation of deferred annotations
+        if not annotations and name != 'Model':
+            try:
+                deferred_annotations = cls.__annotations__
+            except Exception:
+                deferred_annotations = {}
+            if deferred_annotations:
+                # Process fields from deferred annotations
+                for field_name, field_type in deferred_annotations.items():
+                    if field_name.startswith('_'):
+                        continue
+                    # Check for Field definition as class attribute
+                    field_def = cls.__dict__.get(field_name)
+                    if field_def is None:
+                        field_def = Field()
+                    elif not isinstance(field_def, Field):
+                        field_def = Field(default=field_def)
+                    if field_def.type is ...:
+                        field_def.type = None
+                        field_def.required = True
+                    if field_def.type is None:
+                        field_def.type = field_type
+                    origin = get_origin(field_def.type)
+                    args = get_args(field_def.type) if origin is not None else ()
+                    if origin is Union and type(None) in args:
+                        field_def.required = False
+                    if (getattr(field_def, 'default', None) is not None or
+                            getattr(field_def, 'default_factory', None) is not None):
+                        field_def.required = False
+                    fields[field_name] = field_def
+                    # Remove Field objects from class to prevent shadowing
+                    if field_name in cls.__dict__ and isinstance(cls.__dict__[field_name], Field):
+                        try:
+                            delattr(cls, field_name)
+                        except (AttributeError, TypeError):
+                            pass
+
+                # Update class attributes with processed fields
+                cls.__fields__ = fields
+                cls.__field_names_list__ = list(fields.keys())
+                cls.__is_simple_model__ = not has_validators and all(
+                    not (f.min_length or f.max_length or f.pattern or f.email or f.url or
+                         f.ge is not None or f.le is not None or f.gt is not None or f.lt is not None or
+                         f.min_value is not None or f.max_value is not None or f.multiple_of is not None or
+                         f.max_digits is not None or f.decimal_places is not None or
+                         f.min_items is not None or f.max_items is not None or f.unique_items or
+                         f.enum or f.strip_whitespace or f.to_lower or f.to_upper)
+                    for f in fields.values()
+                )
+                # Recompute turbo fast path
+                from decimal import Decimal as _Decimal
+                _has_decimal = any(
+                    _f.type is _Decimal for _f in fields.values()
+                )
+                _has_list_model = False
+                for _f in fields.values():
+                    ft = _f.type
+                    _ft_origin = get_origin(ft)
+                    if _ft_origin is Union:
+                        _ft_args = get_args(ft)
+                        _non_none = [a for a in _ft_args if a is not type(None)]
+                        if _non_none:
+                            ft = _non_none[0]
+                            _ft_origin = get_origin(ft)
+                    if _ft_origin is list:
+                        _inner_args = get_args(ft) if _ft_origin else ()
+                        if _inner_args and isinstance(_inner_args[0], type) and issubclass(_inner_args[0], Model):
+                            _has_list_model = True
+                    elif _ft_origin is dict:
+                        _inner_args = get_args(ft) if _ft_origin else ()
+                        if len(_inner_args) >= 2 and isinstance(_inner_args[1], type) and issubclass(_inner_args[1], Model):
+                            _has_list_model = True
+                cls.__turbo_fast_path__ = not _has_decimal and not _has_list_model and not has_validators
+                cls.__has_defaults__ = any(
+                    f.default is not None or f.default_factory is not None
+                    for f in fields.values()
+                )
+
+        return cls
 
     def __call__(cls, **kwargs):
         """Override instance creation to bypass __init__ for turbo models."""
