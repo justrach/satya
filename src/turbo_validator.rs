@@ -1222,6 +1222,72 @@ impl TurboValidatorPy {
         Ok(py.None())
     }
 
+    /// Batch validate_check: validate a list of dicts, return Vec<bool>.
+    /// On free-threaded Python 3.13+, call this from multiple threads for parallel throughput.
+    fn validate_check_batch(&self, py: Python<'_>, data_list: &Bound<'_, PyList>) -> PyResult<Vec<bool>> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+
+        let mut results = Vec::with_capacity(data_list.len());
+        for item in data_list.iter() {
+            let dict = match item.downcast::<PyDict>() {
+                Ok(d) => d,
+                Err(_) => {
+                    results.push(false);
+                    continue;
+                }
+            };
+
+            let mut valid = true;
+            for (idx, field) in schema.fields.iter().enumerate() {
+                let value = match dict.get_item(&schema.py_names[idx]) {
+                    Ok(Some(v)) => v,
+                    Ok(None) => {
+                        if field.required {
+                            valid = false;
+                            break;
+                        }
+                        continue;
+                    }
+                    Err(_) => {
+                        valid = false;
+                        break;
+                    }
+                };
+
+                if value.is_none() {
+                    if field.required {
+                        valid = false;
+                        break;
+                    }
+                    continue;
+                }
+
+                if !field.has_constraints {
+                    let type_ok = match field.field_type {
+                        FieldType::String => value.is_instance_of::<PyString>(),
+                        FieldType::Int => !value.is_instance_of::<PyBool>() && value.is_instance_of::<PyInt>(),
+                        FieldType::Float => value.is_instance_of::<PyFloat>() || (value.is_instance_of::<PyInt>() && !value.is_instance_of::<PyBool>()),
+                        FieldType::Bool => value.is_instance_of::<PyBool>(),
+                        FieldType::List => value.is_instance_of::<PyList>(),
+                        FieldType::Dict => value.is_instance_of::<PyDict>(),
+                        _ => true,
+                    };
+                    if !type_ok {
+                        valid = false;
+                        break;
+                    }
+                } else if Self::validate_field_inline(py, field, &value).is_err() {
+                    valid = false;
+                    break;
+                }
+            }
+            results.push(valid);
+        }
+        Ok(results)
+    }
+
     /// Validate and return a Python dict (backward-compatible with BlazeValidator)
     fn validate_dict(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
         let instance = self.validate(py, data)?;

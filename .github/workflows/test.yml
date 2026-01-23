@@ -31,13 +31,65 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-cov
+          pip install maturin pytest pytest-cov
 
       - name: Build and install
-        run: pip install . -v
+        run: maturin build --release -i python --out dist && pip install dist/*.whl
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
+
+  test-free-threaded:
+    runs-on: ubuntu-latest
+    name: "test (3.13t free-threaded)"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13t (free-threaded)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13t'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin pytest pytest-cov
+
+      - name: Build and install (free-threaded)
+        run: maturin build --release -i python --out dist && pip install dist/*.whl
+
+      - name: Run tests (free-threaded)
+        run: python -m pytest tests/ -v --tb=short
+
+      - name: Run thread-safety smoke test
+        run: |
+          python -c "
+          import threading, concurrent.futures
+          from satya import Model, Field
+
+          class User(Model):
+              name: str
+              age: int
+
+          def validate_many(thread_id):
+              for i in range(1000):
+                  u = User(name=f'user_{thread_id}_{i}', age=i)
+                  assert u.name == f'user_{thread_id}_{i}'
+                  assert u.age == i
+              return thread_id
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+              futures = [pool.submit(validate_many, t) for t in range(8)]
+              results = [f.result() for f in futures]
+              assert len(results) == 8
+          print('Free-threaded validation: 8 threads × 1000 validations = OK')
+          "
 
   lint:
     runs-on: ubuntu-latest
