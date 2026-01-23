@@ -1618,3 +1618,691 @@ impl TurboValidatorPy {
     }
 
     /// Convert a serde_json Object to a validated PyDict (for JSON bytes path)
+    fn json_object_to_validated_dict(
+        py: Python<'_>,
+        schema: &Arc<TurboSchema>,
+        obj: &serde_json::Map<String, serde_json::Value>,
+        defaults: &HashMap<String, (Py<PyAny>, bool)>,
+    ) -> PyResult<Py<PyDict>> {
+        let result_dict = PyDict::new(py);
+        let mut found = vec![false; schema.fields.len()];
+
+        for (key, json_val) in obj.iter() {
+            if let Some(&idx) = schema.field_map.get(key) {
+                let field = &schema.fields[idx];
+                // Convert JSON value to Python and validate
+                let py_val = Self::json_value_to_validated_py(py, field, json_val)?;
+                // For nested schemas, recursively validate
+                if let Some(ref nested_schema) = field.nested_schema {
+                    if let serde_json::Value::Object(ref nested_obj) = json_val {
+                        let empty_defaults = HashMap::new();
+                        let validated_nested = Self::json_object_to_validated_dict(py, nested_schema, nested_obj, &empty_defaults)?;
+                        result_dict.set_item(key, validated_nested)?;
+                    } else if json_val.is_null() && !field.required {
+                        result_dict.set_item(key, py.None())?;
+                    } else {
+                        result_dict.set_item(key, py_val)?;
+                    }
+                } else {
+                    result_dict.set_item(key, py_val)?;
+                }
+                found[idx] = true;
+            }
+        }
+
+        // Check required + apply defaults
+        for field in &schema.fields {
+            if !found[field.index] {
+                let has_default = defaults.contains_key(&field.name);
+                if field.required && !has_default {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Required field '{}' is missing", field.name)
+                    ));
+                }
+                if let Some((ref default_val, is_mutable)) = defaults.get(&field.name) {
+                    Self::apply_default(py, &result_dict, &field.name, default_val, *is_mutable)?;
+                }
+            }
+        }
+
+        Ok(result_dict.unbind())
+    }
+
+    /// Convert a serde_json::Value to a validated Python object
+    #[inline]
+    fn json_value_to_validated_py(
+        py: Python<'_>,
+        field: &TurboField,
+        value: &serde_json::Value,
+    ) -> PyResult<Py<PyAny>> {
+        match value {
+            serde_json::Value::Null => {
+                if field.required {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Required field '{}' cannot be None", field.name)
+                    ));
+                }
+                Ok(py.None())
+            }
+            serde_json::Value::Bool(b) => {
+                match field.field_type {
+                    FieldType::Bool | FieldType::Any => Ok(PyBool::new(py, *b).as_any().clone().unbind()),
+                    _ => Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a {}", field.name, Self::type_name(&field.field_type))
+                    )),
+                }
+            }
+            serde_json::Value::Number(n) => {
+                match field.field_type {
+                    FieldType::Int => {
+                        if let Some(i) = n.as_i64() {
+                            Self::check_numeric_inline(field, i as f64)?;
+                            Ok(i.into_pyobject(py).unwrap().into_any().unbind())
+                        } else if let Some(f) = n.as_f64() {
+                            // Try to convert float to int if it's a whole number
+                            if f == (f as i64) as f64 {
+                                let i = f as i64;
+                                Self::check_numeric_inline(field, i as f64)?;
+                                Ok(i.into_pyobject(py).unwrap().into_any().unbind())
+                            } else {
+                                Err(PyErr::new::<PyValueError, _>(
+                                    format!("Field '{}' must be an integer", field.name)
+                                ))
+                            }
+                        } else {
+                            Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must be an integer", field.name)
+                            ))
+                        }
+                    }
+                    FieldType::Float | FieldType::Decimal => {
+                        if let Some(f) = n.as_f64() {
+                            Self::check_numeric_inline(field, f)?;
+                            Ok(PyFloat::new(py, f).into_any().unbind())
+                        } else {
+                            Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must be a number", field.name)
+                            ))
+                        }
+                    }
+                    FieldType::Any => {
+                        if let Some(i) = n.as_i64() {
+                            Ok(i.into_pyobject(py).unwrap().into_any().unbind())
+                        } else if let Some(f) = n.as_f64() {
+                            Ok(PyFloat::new(py, f).into_any().unbind())
+                        } else {
+                            Ok(py.None())
+                        }
+                    }
+                    _ => Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a {}", field.name, Self::type_name(&field.field_type))
+                    )),
+                }
+            }
+            serde_json::Value::String(s) => {
+                match field.field_type {
+                    FieldType::String => {
+                        // Validate string constraints
+                        if let Some(min) = field.min_length {
+                            if s.trim().len() < min {
+                                return Err(PyErr::new::<PyValueError, _>(
+                                    format!("Field '{}' must have at least {} characters", field.name, min)
+                                ));
+                            }
+                        }
+                        if let Some(max) = field.max_length {
+                            if s.len() > max {
+                                return Err(PyErr::new::<PyValueError, _>(
+                                    format!("Field '{}' must have at most {} characters", field.name, max)
+                                ));
+                            }
+                        }
+                        if let Some(ref re) = field.compiled_pattern {
+                            if !re.is_match(s) {
+                                return Err(PyErr::new::<PyValueError, _>(
+                                    format!("Field '{}' does not match pattern", field.name)
+                                ));
+                            }
+                        }
+                        if field.email && !fast_parse::validate_email_fast(s) {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must be a valid email", field.name)
+                            ));
+                        }
+                        if field.url && !fast_parse::validate_url_fast(s) {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must be a valid URL", field.name)
+                            ));
+                        }
+                        if let Some(ref vals) = field.enum_values {
+                            if !vals.iter().any(|v| v == s) {
+                                return Err(PyErr::new::<PyValueError, _>(
+                                    format!("Field '{}' must be one of: {:?}", field.name, vals)
+                                ));
+                            }
+                        }
+                        Ok(PyString::new(py, s).into_any().unbind())
+                    }
+                    FieldType::Any => Ok(PyString::new(py, s).into_any().unbind()),
+                    _ => Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a {}", field.name, Self::type_name(&field.field_type))
+                    )),
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                match field.field_type {
+                    FieldType::List | FieldType::Any => {
+                        if let Some(min) = field.min_items {
+                            if arr.len() < min {
+                                return Err(PyErr::new::<PyValueError, _>(
+                                    format!("Field '{}' must have at least {} items", field.name, min)
+                                ));
+                            }
+                        }
+                        if let Some(max) = field.max_items {
+                            if arr.len() > max {
+                                return Err(PyErr::new::<PyValueError, _>(
+                                    format!("Field '{}' must have at most {} items", field.name, max)
+                                ));
+                            }
+                        }
+                        let py_list = PyList::empty(py);
+                        let any_field = TurboField {
+                            name: field.name.clone(),
+                            index: 0,
+                            field_type: FieldType::Any,
+                            required: false,
+                            strict: false,
+                            gt: None, ge: None, lt: None, le: None,
+                            multiple_of: None, finite: false,
+                            min_length: None, max_length: None,
+                            compiled_pattern: None, email: false, url: false,
+                            enum_values: None, min_items: None, max_items: None,
+                            unique_items: false, has_constraints: false, nested_schema: None,
+                        };
+                        for item in arr {
+                            let py_item = Self::json_value_to_validated_py(py, &any_field, item)?;
+                            py_list.append(py_item)?;
+                        }
+                        Ok(py_list.into_any().unbind())
+                    }
+                    _ => Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a {}", field.name, Self::type_name(&field.field_type))
+                    )),
+                }
+            }
+            serde_json::Value::Object(map) => {
+                match field.field_type {
+                    FieldType::Dict | FieldType::Any => {
+                        let py_dict = PyDict::new(py);
+                        let any_field = TurboField {
+                            name: field.name.clone(),
+                            index: 0,
+                            field_type: FieldType::Any,
+                            required: false,
+                            strict: false,
+                            gt: None, ge: None, lt: None, le: None,
+                            multiple_of: None, finite: false,
+                            min_length: None, max_length: None,
+                            compiled_pattern: None, email: false, url: false,
+                            enum_values: None, min_items: None, max_items: None,
+                            unique_items: false, has_constraints: false, nested_schema: None,
+                        };
+                        for (k, v) in map {
+                            let py_val = Self::json_value_to_validated_py(py, &any_field, v)?;
+                            py_dict.set_item(k, py_val)?;
+                        }
+                        Ok(py_dict.into_any().unbind())
+                    }
+                    _ => Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a {}", field.name, Self::type_name(&field.field_type))
+                    )),
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn type_name(ft: &FieldType) -> &'static str {
+        match ft {
+            FieldType::Int => "integer",
+            FieldType::Float => "number",
+            FieldType::String => "string",
+            FieldType::Bool => "boolean",
+            FieldType::List => "list",
+            FieldType::Dict => "dict",
+            FieldType::Decimal => "decimal",
+            FieldType::Any => "any",
+        }
+    }
+
+    /// Combined type check + value extraction (one FFI crossing per field!)
+    #[inline]
+    fn extract_value(_py: Python<'_>, field: &TurboField, value: &Bound<'_, PyAny>) -> PyResult<TurboValue> {
+        if value.is_none() {
+            return Ok(TurboValue::None);
+        }
+
+        match field.field_type {
+            FieldType::Int => {
+                // Bool is subclass of int in Python — reject it
+                if value.is_instance_of::<PyBool>() {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be an integer, not bool", field.name)
+                    ));
+                }
+                if let Ok(i) = value.extract::<i64>() {
+                    return Ok(TurboValue::Int(i));
+                }
+                if !field.strict {
+                    if let Ok(s) = value.downcast::<PyString>() {
+                        if let Ok(i) = s.to_str().unwrap_or("").trim().parse::<i64>() {
+                            return Ok(TurboValue::Int(i));
+                        }
+                    }
+                }
+                Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be an integer", field.name)
+                ))
+            }
+            FieldType::Float => {
+                if let Ok(f) = value.extract::<f64>() {
+                    return Ok(TurboValue::Float(f));
+                }
+                if !field.strict {
+                    if let Ok(s) = value.downcast::<PyString>() {
+                        if let Ok(f) = s.to_str().unwrap_or("").trim().parse::<f64>() {
+                            return Ok(TurboValue::Float(f));
+                        }
+                    }
+                }
+                Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a number", field.name)
+                ))
+            }
+            FieldType::String => {
+                if let Ok(s) = value.downcast::<PyString>() {
+                    return Ok(TurboValue::Str(s.to_str()?.to_owned()));
+                }
+                Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a string", field.name)
+                ))
+            }
+            FieldType::Bool => {
+                if value.is_exact_instance_of::<PyBool>() {
+                    return Ok(TurboValue::Bool(value.extract()?));
+                }
+                Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a boolean", field.name)
+                ))
+            }
+            FieldType::List => {
+                if let Ok(list) = value.downcast::<PyList>() {
+                    let mut items = Vec::with_capacity(list.len());
+                    for item in list.iter() {
+                        items.push(TurboValue::from_py_any(&item)?);
+                    }
+                    return Ok(TurboValue::List(items));
+                }
+                Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a list", field.name)
+                ))
+            }
+            FieldType::Dict => {
+                if let Ok(dict) = value.downcast::<PyDict>() {
+                    let mut pairs = Vec::with_capacity(dict.len());
+                    for (k, v) in dict.iter() {
+                        let key = k.extract::<String>()?;
+                        let val = TurboValue::from_py_any(&v)?;
+                        pairs.push((key, val));
+                    }
+                    return Ok(TurboValue::Dict(pairs));
+                }
+                Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a dict", field.name)
+                ))
+            }
+            FieldType::Decimal => {
+                // Accept string, int, float — store as string for precision
+                if let Ok(s) = value.downcast::<PyString>() {
+                    let s_str = s.to_str()?.to_owned();
+                    // Validate it parses as a number
+                    if s_str.trim().parse::<f64>().is_ok() || s_str.trim() == "NaN" || s_str.trim() == "Infinity" {
+                        return Ok(TurboValue::Decimal(s_str));
+                    }
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a valid decimal", field.name)
+                    ));
+                }
+                if let Ok(i) = value.extract::<i64>() {
+                    return Ok(TurboValue::Decimal(i.to_string()));
+                }
+                if let Ok(f) = value.extract::<f64>() {
+                    return Ok(TurboValue::Decimal(f.to_string()));
+                }
+                // Try extracting string repr from Decimal object
+                if let Ok(s) = value.str() {
+                    return Ok(TurboValue::Decimal(s.to_string()));
+                }
+                Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a Decimal", field.name)
+                ))
+            }
+            FieldType::Any => TurboValue::from_py_any(value),
+        }
+    }
+
+    /// Pure Rust constraint validation — ZERO FFI crossings!
+    #[inline]
+    fn validate_constraints(field: &TurboField, value: &TurboValue) -> PyResult<()> {
+        match value {
+            TurboValue::Int(i) => {
+                Self::check_numeric(field, *i as f64)?;
+            }
+            TurboValue::Float(f) => {
+                if field.finite && (f.is_nan() || f.is_infinite()) {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be finite", field.name)
+                    ));
+                }
+                Self::check_numeric(field, *f)?;
+            }
+            TurboValue::Str(s) => {
+                // min_length uses trimmed string (matching BlazeValidator behavior)
+                if let Some(min) = field.min_length {
+                    if s.trim().len() < min {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must have at least {} characters", field.name, min)
+                        ));
+                    }
+                }
+                if let Some(max) = field.max_length {
+                    if s.len() > max {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must have at most {} characters", field.name, max)
+                        ));
+                    }
+                }
+                if let Some(ref re) = field.compiled_pattern {
+                    if !re.is_match(s) {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' does not match pattern", field.name)
+                        ));
+                    }
+                }
+                // Hand-written validators (5-10x faster than regex)
+                if field.email && !fast_parse::validate_email_fast(s) {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a valid email", field.name)
+                    ));
+                }
+                if field.url && !fast_parse::validate_url_fast(s) {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' must be a valid URL", field.name)
+                    ));
+                }
+                if let Some(ref vals) = field.enum_values {
+                    if !vals.iter().any(|v| v == s) {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must be one of: {:?}", field.name, vals)
+                        ));
+                    }
+                }
+            }
+            TurboValue::List(items) => {
+                if let Some(min) = field.min_items {
+                    if items.len() < min {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must have at least {} items", field.name, min)
+                        ));
+                    }
+                }
+                if let Some(max) = field.max_items {
+                    if items.len() > max {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Field '{}' must have at most {} items", field.name, max)
+                        ));
+                    }
+                }
+                if field.unique_items {
+                    let mut seen = std::collections::HashSet::new();
+                    for item in items {
+                        let repr = item.to_json();
+                        if !seen.insert(repr) {
+                            return Err(PyErr::new::<PyValueError, _>(
+                                format!("Field '{}' must have unique items", field.name)
+                            ));
+                        }
+                    }
+                }
+            }
+            TurboValue::Decimal(s) => {
+                // Parse decimal string to f64 for numeric constraints
+                if let Ok(f) = s.parse::<f64>() {
+                    Self::check_numeric(field, f)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Write a Python value directly as JSON to a string buffer (zero-alloc fast path)
+    #[inline]
+    fn write_py_value_json(py: Python<'_>, value: &Bound<'_, PyAny>, out: &mut String) -> PyResult<()> {
+        // Type check order optimized for typical API model data:
+        // str (most common) → int → bool (before int extraction!) → none → float → list → dict
+        if let Ok(s) = value.downcast::<PyString>() {
+            let s_str = s.to_str()?;
+            out.push('"');
+            // Fast path: no escaping needed for simple ASCII strings
+            if s_str.len() < 128 && !s_str.bytes().any(|b| b == b'"' || b == b'\\' || b < 0x20) {
+                out.push_str(s_str);
+            } else {
+                for c in s_str.chars() {
+                    match c {
+                        '"' => out.push_str("\\\""),
+                        '\\' => out.push_str("\\\\"),
+                        '\n' => out.push_str("\\n"),
+                        '\r' => out.push_str("\\r"),
+                        '\t' => out.push_str("\\t"),
+                        c if c < '\x20' => {
+                            use std::fmt::Write;
+                            let _ = write!(out, "\\u{:04x}", c as u32);
+                        }
+                        c => out.push(c),
+                    }
+                }
+            }
+            out.push('"');
+            return Ok(());
+        }
+        if value.is_none() {
+            out.push_str("null");
+            return Ok(());
+        }
+        // Bool MUST be checked before int (bool is subclass of int in Python)
+        if value.is_instance_of::<PyBool>() {
+            let b: bool = value.extract()?;
+            out.push_str(if b { "true" } else { "false" });
+            return Ok(());
+        }
+        // Use is_instance_of first (type pointer check), then extract (avoids __index__ protocol)
+        if value.is_instance_of::<PyInt>() {
+            let i: i64 = value.extract()?;
+            use std::fmt::Write;
+            let _ = write!(out, "{}", i);
+            return Ok(());
+        }
+        if value.is_instance_of::<PyFloat>() {
+            let f: f64 = value.extract()?;
+            if f.is_nan() || f.is_infinite() {
+                out.push_str("null");
+            } else {
+                use std::fmt::Write;
+                let _ = write!(out, "{}", f);
+            }
+            return Ok(());
+        }
+        if let Ok(list) = value.downcast::<PyList>() {
+            out.push('[');
+            for (i, item) in list.iter().enumerate() {
+                if i > 0 { out.push(','); }
+                Self::write_py_value_json(py, &item, out)?;
+            }
+            out.push(']');
+            return Ok(());
+        }
+        if let Ok(dict) = value.downcast::<PyDict>() {
+            out.push('{');
+            let mut first = true;
+            for (k, v) in dict.iter() {
+                if !first { out.push(','); }
+                first = false;
+                // Key
+                out.push('"');
+                if let Ok(s) = k.downcast::<PyString>() {
+                    out.push_str(s.to_str()?);
+                } else {
+                    let s = k.str()?;
+                    out.push_str(s.to_str()?);
+                }
+                out.push_str("\":");
+                Self::write_py_value_json(py, &v, out)?;
+            }
+            out.push('}');
+            return Ok(());
+        }
+        // Fallback: stringify
+        let s = value.str()?.to_str()?.to_owned();
+        out.push('"');
+        out.push_str(&s);
+        out.push('"');
+        Ok(())
+    }
+
+    /// Convert a PyDict to serde_json::Value for fast JSON serialization
+    fn pydict_to_serde_value(py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<serde_json::Value> {
+        let mut map = serde_json::Map::with_capacity(data.len());
+        for (key, value) in data.iter() {
+            let key_str = if let Ok(s) = key.downcast::<PyString>() {
+                s.to_str()?.to_owned()
+            } else {
+                key.str()?.to_str()?.to_owned()
+            };
+            let json_val = Self::pyany_to_serde_value(py, &value)?;
+            map.insert(key_str, json_val);
+        }
+        Ok(serde_json::Value::Object(map))
+    }
+
+    /// Convert any Python object to serde_json::Value
+    #[inline]
+    fn pyany_to_serde_value(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
+        if value.is_none() {
+            return Ok(serde_json::Value::Null);
+        }
+        // Check bool BEFORE int (bool is subclass of int in Python)
+        if value.is_instance_of::<PyBool>() {
+            let b: bool = value.extract()?;
+            return Ok(serde_json::Value::Bool(b));
+        }
+        if let Ok(i) = value.extract::<i64>() {
+            return Ok(serde_json::Value::Number(serde_json::Number::from(i)));
+        }
+        if let Ok(f) = value.extract::<f64>() {
+            if let Some(n) = serde_json::Number::from_f64(f) {
+                return Ok(serde_json::Value::Number(n));
+            } else {
+                // NaN/Infinity → null (JSON standard)
+                return Ok(serde_json::Value::Null);
+            }
+        }
+        if let Ok(s) = value.downcast::<PyString>() {
+            return Ok(serde_json::Value::String(s.to_str()?.to_owned()));
+        }
+        if let Ok(list) = value.downcast::<PyList>() {
+            let mut arr = Vec::with_capacity(list.len());
+            for item in list.iter() {
+                arr.push(Self::pyany_to_serde_value(py, &item)?);
+            }
+            return Ok(serde_json::Value::Array(arr));
+        }
+        if let Ok(dict) = value.downcast::<PyDict>() {
+            return Self::pydict_to_serde_value(py, dict);
+        }
+        // Fallback: convert to string representation
+        let s = value.str()?.to_str()?.to_owned();
+        Ok(serde_json::Value::String(s))
+    }
+
+    /// Apply a default value to a target dict efficiently.
+    /// For empty list/dict defaults, creates new instances directly (avoids copy.deepcopy overhead).
+    #[inline]
+    fn apply_default(py: Python<'_>, target: &Bound<'_, PyDict>, field_name: &str, default_val: &Py<PyAny>, is_mutable: bool) -> PyResult<()> {
+        if is_mutable {
+            // Fast path: empty list/dict don't need deepcopy
+            let dv = default_val.bind(py);
+            if let Ok(list) = dv.downcast::<PyList>() {
+                if list.is_empty() {
+                    target.set_item(field_name, PyList::empty(py))?;
+                    return Ok(());
+                }
+            } else if let Ok(dict) = dv.downcast::<PyDict>() {
+                if dict.is_empty() {
+                    target.set_item(field_name, PyDict::new(py))?;
+                    return Ok(());
+                }
+            }
+            // General case: deepcopy
+            let copy_mod = py.import("copy")?;
+            let copied = copy_mod.call_method1("deepcopy", (dv,))?;
+            target.set_item(field_name, copied)?;
+        } else {
+            target.set_item(field_name, default_val.bind(py))?;
+        }
+        Ok(())
+    }
+
+    /// Check numeric constraints (shared by Int, Float, Decimal)
+    #[inline]
+    fn check_numeric(field: &TurboField, val: f64) -> PyResult<()> {
+        if let Some(gt) = field.gt {
+            if val <= gt {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be > {}", field.name, gt)
+                ));
+            }
+        }
+        if let Some(ge) = field.ge {
+            if val < ge {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be >= {}", field.name, ge)
+                ));
+            }
+        }
+        if let Some(lt) = field.lt {
+            if val >= lt {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be < {}", field.name, lt)
+                ));
+            }
+        }
+        if let Some(le) = field.le {
+            if val > le {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be <= {}", field.name, le)
+                ));
+            }
+        }
+        if let Some(multiple_of) = field.multiple_of {
+            if multiple_of != 0.0 && (val % multiple_of).abs() > f64::EPSILON {
+                return Err(PyErr::new::<PyValueError, _>(
+                    format!("Field '{}' must be a multiple of {}", field.name, multiple_of)
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
