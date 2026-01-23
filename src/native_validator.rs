@@ -2,7 +2,7 @@
 // Direct field storage in Rust, no Python dict overhead
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString, PyList};
+use pyo3::types::{PyBool, PyDict, PyString, PyList};
 use std::collections::HashMap;
 use regex::Regex;
 use once_cell::sync::Lazy;
@@ -29,22 +29,10 @@ pub enum FieldValue {
 impl FieldValue {
     fn to_python(&self, py: Python<'_>) -> PyResult<PyObject> {
         match self {
-            FieldValue::Int(i) => {
-                let val = py.import("builtins")?.getattr("int")?.call1((*i,))?;
-                Ok(val.unbind())
-            }
-            FieldValue::Float(f) => {
-                let val = py.import("builtins")?.getattr("float")?.call1((*f,))?;
-                Ok(val.unbind())
-            }
-            FieldValue::String(s) => {
-                let val = py.import("builtins")?.getattr("str")?.call1((s.as_str(),))?;
-                Ok(val.unbind())
-            }
-            FieldValue::Bool(b) => {
-                let val = py.import("builtins")?.getattr("bool")?.call1((*b,))?;
-                Ok(val.unbind())
-            }
+            FieldValue::Int(i) => Ok(i.into_pyobject(py)?.into_any().unbind()),
+            FieldValue::Float(f) => Ok(f.into_pyobject(py)?.into_any().unbind()),
+            FieldValue::String(s) => Ok(PyString::new(py, s).into_any().unbind()),
+            FieldValue::Bool(b) => Ok(PyBool::new(py, *b).as_any().clone().unbind()),
             FieldValue::None => Ok(py.None()),
         }
     }
