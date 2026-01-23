@@ -578,3 +578,143 @@ impl TurboValidatorPy {
 
     /// Fast validate with pre-created nested instance __dict__s.
     /// nested_targets: {field_name: nested_instance.__dict__}
+    /// Writes nested fields directly to their target dicts (no intermediate + no dict.update).
+    fn validate_into_nested_dicts(
+        &self, py: Python<'_>,
+        data: &Bound<'_, PyDict>,
+        target: &Bound<'_, PyDict>,
+        nested_targets: &Bound<'_, PyDict>,
+    ) -> PyResult<PyObject> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+        let mut found: u64 = 0;
+        let mut errors: Option<Vec<(&str, String)>> = None;
+
+        for (key, value) in data.iter() {
+            let key_str = match key.downcast::<PyString>() {
+                Ok(s) => match s.to_str() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+
+            if let Some(&idx) = schema.field_map.get(key_str) {
+                let field = &schema.fields[idx];
+                match Self::validate_field_inline(py, field, &value) {
+                    Ok(coerced) => {
+                        if let Some(ref nested_schema) = field.nested_schema {
+                            // Write directly to nested instance's __dict__
+                            if let Ok(nested_dict) = value.downcast::<PyDict>() {
+                                if let Ok(Some(nested_target_obj)) = nested_targets.get_item(key_str) {
+                                    if let Ok(nested_target) = nested_target_obj.downcast::<PyDict>() {
+                                        // Single-pass: validate + track found fields
+                                        let mut nested_found: u64 = 0;
+                                        for (nkey, nval) in nested_dict.iter() {
+                                            let nkey_str = match nkey.downcast::<PyString>() {
+                                                Ok(s) => match s.to_str() {
+                                                    Ok(s) => s,
+                                                    Err(_) => continue,
+                                                },
+                                                Err(_) => continue,
+                                            };
+                                            if let Some(&nidx) = nested_schema.field_map.get(nkey_str) {
+                                                nested_found |= 1u64 << nidx;
+                                                let nfield = &nested_schema.fields[nidx];
+                                                match Self::validate_field_inline(py, nfield, &nval) {
+                                                    Ok(ncoerced) => {
+                                                        if let Some(cv) = ncoerced {
+                                                            nested_target.set_item(nkey_str, cv.bind(py))?;
+                                                        } else {
+                                                            nested_target.set_item(nkey_str, &nval)?;
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        errors.get_or_insert_with(Vec::new).push(
+                                                            (field.name.as_str(), format!("{}.{}: {}", field.name, nkey_str, e))
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // Check required fields
+                                        for nfield in &nested_schema.fields {
+                                            if nested_found & (1u64 << nfield.index) == 0 {
+                                                if nfield.required {
+                                                    errors.get_or_insert_with(Vec::new).push(
+                                                        (field.name.as_str(), format!("Required field '{}.{}' is missing", field.name, nfield.name))
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Fallback: validate_to_dict_inner
+                                        let empty_defaults = HashMap::new();
+                                        match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                            Ok(validated) => { target.set_item(key_str, validated)?; }
+                                            Err(e) => {
+                                                errors.get_or_insert_with(Vec::new).push(
+                                                    (field.name.as_str(), format!("{}: {}", field.name, e))
+                                                );
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // No nested target provided, use standard path
+                                    let empty_defaults = HashMap::new();
+                                    match Self::validate_to_dict_inner(py, nested_schema, nested_dict, &empty_defaults) {
+                                        Ok(validated) => { target.set_item(key_str, validated)?; }
+                                        Err(e) => {
+                                            errors.get_or_insert_with(Vec::new).push(
+                                                (field.name.as_str(), format!("{}: {}", field.name, e))
+                                            );
+                                        }
+                                    }
+                                }
+                            } else if value.is_none() && !field.required {
+                                target.set_item(key_str, py.None())?;
+                            } else {
+                                target.set_item(key_str, &value)?;
+                            }
+                        } else if let Some(coerced_val) = coerced {
+                            target.set_item(key_str, coerced_val.bind(py))?;
+                        } else {
+                            target.set_item(key_str, &value)?;
+                        }
+                    }
+                    Err(e) => {
+                        errors.get_or_insert_with(Vec::new).push(
+                            (field.name.as_str(), e.to_string())
+                        );
+                    }
+                }
+                found |= 1u64 << idx;
+            }
+        }
+
+        // Check required + apply defaults for parent
+        for field in &schema.fields {
+            if found & (1u64 << field.index) == 0 {
+                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                    Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
+                } else if field.required {
+                    errors.get_or_insert_with(Vec::new).push(
+                        (field.name.as_str(), format!("Required field '{}' is missing", field.name))
+                    );
+                }
+            }
+        }
+
+        if let Some(errs) = errors {
+            let err_list = PyList::new(py, errs.iter().map(|(fname, msg)| {
+                (*fname, msg.as_str())
+            }))?;
+            Ok(err_list.into_any().unbind())
+        } else {
+            Ok(py.None())
+        }
+    }
+
+    /// Convert a PyDict to a JSON string using Rust's serde_json (faster than json.dumps)
+    #[staticmethod]
