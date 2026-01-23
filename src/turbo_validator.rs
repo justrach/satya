@@ -718,3 +718,168 @@ impl TurboValidatorPy {
 
     /// Convert a PyDict to a JSON string using Rust's serde_json (faster than json.dumps)
     #[staticmethod]
+    fn dict_to_json(py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<String> {
+        let value = Self::pydict_to_serde_value(py, data)?;
+        serde_json::to_string(&value).map_err(|e| {
+            PyErr::new::<PyValueError, _>(format!("JSON serialization error: {}", e))
+        })
+    }
+
+    /// Serialize specific fields from a PyDict directly to JSON (bypasses model_dump entirely!)
+    /// This is the fastest path: __dict__ → JSON string in one Rust call.
+    #[staticmethod]
+    fn dict_to_json_fields(py: Python<'_>, data: &Bound<'_, PyDict>, field_names: Vec<String>) -> PyResult<String> {
+        let mut out = String::with_capacity(64 + field_names.len() * 32);
+        out.push('{');
+        let mut first = true;
+        for name in &field_names {
+            if let Some(value) = data.get_item(name)? {
+                if !first { out.push(','); }
+                first = false;
+                // Write key
+                out.push('"');
+                out.push_str(name);
+                out.push_str("\":");
+                // Write value directly
+                Self::write_py_value_json(py, &value, &mut out)?;
+            }
+        }
+        out.push('}');
+        Ok(out)
+    }
+
+    /// Serialize a PyDict directly to JSON by iterating all entries (no field lookup overhead!)
+    /// Use this when the dict only contains field data (e.g., turbo model __dict__).
+    #[staticmethod]
+    fn dict_to_json_direct(py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<String> {
+        let mut out = String::with_capacity(64 + data.len() * 32);
+        out.push('{');
+        let mut first = true;
+        for (key, value) in data.iter() {
+            if !first { out.push(','); }
+            first = false;
+            // Write key directly
+            out.push('"');
+            if let Ok(s) = key.downcast::<PyString>() {
+                out.push_str(s.to_str()?);
+            } else {
+                let s = key.str()?;
+                out.push_str(s.to_str()?);
+            }
+            out.push_str("\":");
+            // Value
+            Self::write_py_value_json(py, &value, &mut out)?;
+        }
+        out.push('}');
+        Ok(out)
+    }
+
+    /// Copy only specified fields from source dict to a new dict (fast model_dump replacement)
+    #[staticmethod]
+    fn dict_copy_fields(py: Python<'_>, src: &Bound<'_, PyDict>, field_names: Vec<String>) -> PyResult<Py<PyDict>> {
+        let result = PyDict::new(py);
+        for name in &field_names {
+            if let Some(value) = src.get_item(name)? {
+                result.set_item(name, value)?;
+            }
+        }
+        Ok(result.unbind())
+    }
+
+    /// Validate JSON bytes/str and return a PyDict directly
+    fn validate_json_bytes(&self, py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+
+        // Parse JSON directly from borrowed data (zero-copy!)
+        let json_value: serde_json::Value = if let Ok(b) = data.downcast::<pyo3::types::PyBytes>() {
+            serde_json::from_slice(b.as_bytes()).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
+            })?
+        } else if let Ok(s) = data.downcast::<PyString>() {
+            serde_json::from_str(s.to_str()?).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
+            })?
+        } else {
+            return Err(PyErr::new::<PyValueError, _>("Expected bytes or str"));
+        };
+
+        // Must be an object
+        let obj = match json_value {
+            serde_json::Value::Object(map) => map,
+            _ => return Err(PyErr::new::<PyValueError, _>("JSON must be an object")),
+        };
+
+        // Build validated PyDict from JSON
+        Self::json_object_to_validated_dict(py, schema, &obj, &self.defaults)
+    }
+
+    /// Validate JSON bytes/str and write directly into target dict (skips temporary allocation!)
+    fn validate_json_into_dict(&self, py: Python<'_>, data: &Bound<'_, PyAny>, target: &Bound<'_, PyDict>) -> PyResult<()> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+
+        // Parse JSON directly from borrowed data (zero-copy, no Vec allocation!)
+        let json_value: serde_json::Value = if let Ok(b) = data.downcast::<pyo3::types::PyBytes>() {
+            serde_json::from_slice(b.as_bytes()).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
+            })?
+        } else if let Ok(s) = data.downcast::<PyString>() {
+            serde_json::from_str(s.to_str()?).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid JSON: {}", e))
+            })?
+        } else {
+            return Err(PyErr::new::<PyValueError, _>("Expected bytes or str"));
+        };
+
+        // Must be an object
+        let obj = match json_value {
+            serde_json::Value::Object(map) => map,
+            _ => return Err(PyErr::new::<PyValueError, _>("JSON must be an object")),
+        };
+
+        // Write validated fields directly into target
+        let mut found = vec![false; schema.fields.len()];
+        for (key, json_val) in obj.iter() {
+            if let Some(&idx) = schema.field_map.get(key) {
+                let field = &schema.fields[idx];
+                let py_val = Self::json_value_to_validated_py(py, field, json_val)?;
+                if let Some(ref nested_schema) = field.nested_schema {
+                    if let serde_json::Value::Object(ref nested_obj) = json_val {
+                        let empty_defaults = HashMap::new();
+                        let validated_nested = Self::json_object_to_validated_dict(py, nested_schema, nested_obj, &empty_defaults)?;
+                        target.set_item(key, validated_nested)?;
+                    } else if json_val.is_null() && !field.required {
+                        target.set_item(key, py.None())?;
+                    } else {
+                        target.set_item(key, py_val)?;
+                    }
+                } else {
+                    target.set_item(key, py_val)?;
+                }
+                found[idx] = true;
+            }
+        }
+
+        // Check required + apply defaults
+        for field in &schema.fields {
+            if !found[field.index] {
+                let has_default = self.defaults.contains_key(&field.name);
+                if field.required && !has_default {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Required field '{}' is missing", field.name)
+                    ));
+                }
+                if let Some((ref default_val, is_mutable)) = self.defaults.get(&field.name) {
+                    Self::apply_default(py, target, &field.name, default_val, *is_mutable)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// PRIORITY 1+4: Validate kwargs and construct Model instance in ONE Rust call.
+    /// Eliminates: Python __init__ body, _construct_validated, intermediate dict.
+    /// Handles nested models: pass nested_classes={field_name: ModelClass} to recursively construct.
