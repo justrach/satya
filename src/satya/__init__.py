@@ -74,9 +74,30 @@ class ValidationResult(Generic[T]):
 
 class ModelValidationError(Exception):
     """Exception raised when model validation fails (Pydantic-like)."""
-    def __init__(self, errors: List[ValidationError]):
-        self.errors = errors
-        super().__init__("; ".join(f"{e.field}: {e.message}" for e in errors))
+    __slots__ = ('_raw', '_errors_cache')
+
+    def __init__(self, errors):
+        self._raw = errors
+        self._errors_cache = None
+        Exception.__init__(self)
+
+    @property
+    def errors(self):
+        if self._errors_cache is None:
+            raw = self._raw
+            if raw and isinstance(raw[0], tuple):
+                self._errors_cache = [
+                    ValidationError(field=t[0], message=t[1], path=[t[0]]) for t in raw
+                ]
+            else:
+                self._errors_cache = raw
+        return self._errors_cache
+
+    def __str__(self):
+        raw = self._raw
+        if raw and isinstance(raw[0], tuple):
+            return "; ".join(f"{t[0]}: {t[1]}" for t in raw)
+        return "; ".join(f"{e.field}: {e.message}" for e in raw)
 
 
 @dataclass
@@ -212,6 +233,27 @@ class Field:
             
         return schema
 
+def _fast_construct_nested(ftype, val):
+    """Fast inline constructor for nested models (avoids classmethod dispatch)."""
+    ni = object.__new__(ftype)
+    nested = ftype.__nested_fields__
+    if nested:
+        for name, sftype in nested.items():
+            sv = val.get(name)
+            if isinstance(sv, dict):
+                val[name] = _fast_construct_nested(sftype, sv)
+        list_models = ftype.__list_model_fields__
+        if list_models:
+            for name, item_type in list_models.items():
+                sv = val.get(name)
+                if isinstance(sv, list):
+                    val[name] = [
+                        _fast_construct_nested(item_type, item) if isinstance(item, dict) else item
+                        for item in sv
+                    ]
+    ni.__dict__.update(val)
+    return ni
+
 class ModelMetaclass(type):
     """Metaclass for handling model definitions"""
     def __new__(mcs, name, bases, namespace):
@@ -292,9 +334,47 @@ class ModelMetaclass(type):
                 break
         
         namespace['__is_simple_model__'] = is_simple
-        
-        # NOTE: Optimized __init__ disabled for now - it breaks nested model conversion
-        # TODO: Re-enable with proper nested model handling
+
+        # Detect if Turbo fast-path is usable
+        # Now supports: nested Models (Rust handles them), default_factory (Rust applies defaults)
+        # Still disabled for: Decimal fields, custom validators, List[Model], Dict[str, Model]
+        from decimal import Decimal as _Decimal
+        _has_decimal = False
+        _has_list_model = False
+        for _f in fields.values():
+            ft = _f.type
+            # Unwrap Optional[T]
+            _ft_origin = get_origin(ft)
+            if _ft_origin is Union:
+                _ft_args = get_args(ft)
+                _non_none = [a for a in _ft_args if a is not type(None)]
+                if _non_none:
+                    ft = _non_none[0]
+                    _ft_origin = get_origin(ft)
+            # Check for Decimal
+            if ft is _Decimal:
+                _has_decimal = True
+            # Check for List[Model] or Dict[str, Model] (not yet handled in Rust)
+            if _ft_origin is list:
+                _inner_args = get_args(ft) if _ft_origin else ()
+                if _inner_args and isinstance(_inner_args[0], type) and issubclass(_inner_args[0], Model):
+                    _has_list_model = True
+            elif _ft_origin is dict:
+                _inner_args = get_args(ft) if _ft_origin else ()
+                if len(_inner_args) >= 2 and isinstance(_inner_args[1], type) and issubclass(_inner_args[1], Model):
+                    _has_list_model = True
+        namespace['__turbo_fast_path__'] = not _has_decimal and not _has_list_model and not has_validators
+        namespace['__turbo__'] = None  # Cached turbo validator reference
+        namespace['__nested_fields__'] = None  # Nested Model field map {name: ModelType}
+        namespace['__list_model_fields__'] = None  # List[Model] field map {name: ItemModelType}
+        namespace['__field_names_list__'] = list(fields.keys())  # Cached for Rust calls
+
+        # Detect if any field has a default value (for skipping defaults loop)
+        _has_any_default = any(
+            f.default is not None or f.default_factory is not None
+            for f in fields.values()
+        )
+        namespace['__has_defaults__'] = _has_any_default
         
         # Add __slots__ for memory efficiency (msgspec-inspired!)
         # Disabled for now due to conflicts with defaults
@@ -310,7 +390,7 @@ class ModelMetaclass(type):
         # Add __hash__ if frozen
         if config.get('frozen', False):
             def __hash__(self):
-                return hash(tuple(self._data.items()))
+                return hash(tuple(self._ensure_data().items()))
             namespace['__hash__'] = __hash__
         
         # Add gc=False support (msgspec-inspired!)
@@ -329,6 +409,39 @@ class ModelMetaclass(type):
         
         return super().__new__(mcs, name, bases, namespace)
 
+    def __call__(cls, **kwargs):
+        """Override instance creation to bypass __init__ for turbo models."""
+        turbo = cls.__turbo__
+        if turbo is not None:
+            instance = cls.__new__(cls)
+            nested = cls.__nested_fields__
+            if nested and cls.__nested_all_flat__:
+                # Fast path: pre-create flat nested instances, Rust writes to their __dict__s
+                nested_targets = {}
+                for name, ftype in nested.items():
+                    ni = object.__new__(ftype)
+                    nested_targets[name] = ni.__dict__
+                    instance.__dict__[name] = ni
+                errs = turbo.validate_into_nested_dicts(kwargs, instance.__dict__, nested_targets)
+            else:
+                errs = turbo.validate_into_dict_result(kwargs, instance.__dict__)
+                if errs is None and nested:
+                    for name, ftype in nested.items():
+                        val = instance.__dict__.get(name)
+                        if isinstance(val, dict):
+                            instance.__dict__[name] = _fast_construct_nested(ftype, val)
+            if errs is not None:
+                raise ModelValidationError(errs)
+            return instance
+        # First call or non-turbo: initialize validator and retry/fallback
+        if hasattr(cls, 'validator'):
+            if cls.__satya_validator_core__ is None:
+                cls.__satya_validator_core__ = cls.validator()
+                turbo = cls.__turbo__
+                if turbo is not None:
+                    return cls(**kwargs)
+        return super().__call__(**kwargs)
+
 class Model(metaclass=ModelMetaclass):
     """Base class for schema models with improved developer experience"""
     
@@ -338,48 +451,79 @@ class Model(metaclass=ModelMetaclass):
     
     def __init__(self, **data):
         """Create a new model by parsing and validating input data from keyword arguments.
-        
+
         Raises ValidationError if the input data cannot be validated to form a valid model.
         `self` is explicitly positional-only to allow `self` as a field name.
         """
-        # PYDANTIC-EXACT: Minimal overhead!
         __tracebackhide__ = True
-        
+
         # Get cached validator
         validator = self.__class__.__satya_validator_core__
         if validator is None:
-            # Lazy initialization on first use
             validator = self.__class__.validator()
             self.__class__.__satya_validator_core__ = validator
-        
+
+        # ═══ TURBO FAST PATH: validate directly into __dict__ (zero intermediate dict!) ═══
+        turbo = self.__class__.__turbo__
+        if turbo is not None:
+            try:
+                # Single FFI call: validate + write directly into __dict__!
+                turbo.validate_into_dict(data, self.__dict__)
+                # Wrap nested dicts as Model instances (no re-validation)
+                nested_fields = self.__class__.__nested_fields__
+                if nested_fields:
+                    for name, ftype in nested_fields.items():
+                        val = self.__dict__.get(name)
+                        if isinstance(val, dict):
+                            self.__dict__[name] = _fast_construct_nested(ftype, val)
+                return
+            except Exception as e:
+                # Rust accumulates errors as newline-separated strings
+                err_msg = str(e)
+                err_lines = [line.strip() for line in err_msg.split('\n') if line.strip()]
+                errors = []
+                for line in err_lines:
+                    # Extract field name from "Field 'name' ..." or "Required field 'name' ..."
+                    field_name = "root"
+                    # Strip "ValueError: " prefix if present (from PyO3 exception formatting)
+                    msg = line
+                    if msg.startswith("ValueError: "):
+                        msg = msg[len("ValueError: "):]
+                    if "Field '" in msg:
+                        try:
+                            field_name = msg.split("Field '")[1].split("'")[0]
+                        except (IndexError, ValueError):
+                            pass
+                    errors.append(ValidationError(field=field_name, message=msg, path=[field_name]))
+                raise ModelValidationError(errors)
+
+        # ═══ STANDARD PATH: Full validation with nested model support ═══
         # Pre-process: Convert Model instances to dicts for validation
         processed_data = {}
         for key, value in data.items():
             if isinstance(value, Model):
-                processed_data[key] = value._data
+                processed_data[key] = value._ensure_data()
             else:
                 processed_data[key] = value
-        
+
         # Validate the data
         result = validator.validate(processed_data)
         if not result.is_valid:
             raise ModelValidationError(result.errors)
         validated_dict = result.value
-        
+
         # Apply default values for fields not provided in data
         for name, field in self.__fields__.items():
             if name not in validated_dict:
-                # Handle default_factory (Pydantic compatibility)
                 if field.default_factory is not None:
                     validated_dict[name] = field.default_factory()
                 elif field.default is not None:
-                    # Deep copy mutable defaults to avoid shared references
                     if isinstance(field.default, (list, dict, set)):
                         import copy
                         validated_dict[name] = copy.deepcopy(field.default)
                     else:
                         validated_dict[name] = field.default
-        
+
         # Convert floats back to Decimal for Decimal fields
         from decimal import Decimal
         for name, field in self.__fields__.items():
@@ -387,91 +531,71 @@ class Model(metaclass=ModelMetaclass):
                 value = validated_dict[name]
                 if isinstance(value, (int, float)) and not isinstance(value, Decimal):
                     validated_dict[name] = Decimal(str(value))
-        
-        # CRITICAL OPTIMIZATION: Set _data to validated_dict DIRECTLY!
-        # This avoids copying dict items one by one
+
         object.__setattr__(self, '_data', validated_dict)
         object.__setattr__(self, '_errors', [])
-        
-        # OPTIMIZATION: Only process nested models if they exist
-        # Post-process: Convert nested dicts to Model instances and validate list constraints
+
+        # Post-process: Convert nested dicts to Model instances
         for name, field in self.__fields__.items():
             value = validated_dict.get(name)
             if value is None:
                 continue
-            
-            # Check list constraints (min_items, max_items, unique_items)
-            if isinstance(value, list):
-                if field.min_items is not None and len(value) < field.min_items:
-                    raise ModelValidationError([
-                        ValidationError(field=name, message=f"Array must have at least {field.min_items} items", path=[name])
-                    ])
-                if field.max_items is not None and len(value) > field.max_items:
-                    raise ModelValidationError([
-                        ValidationError(field=name, message=f"Array must have at most {field.max_items} items", path=[name])
-                    ])
-                if field.unique_items and len(set(str(v) for v in value)) != len(value):
-                    raise ModelValidationError([
-                        ValidationError(field=name, message="Array items must be unique", path=[name])
-                    ])
-                
+
             field_type = field.type
             if field_type is None:
                 continue
-            
+
             # Unwrap Optional[T]
             origin = get_origin(field_type)
             args = get_args(field_type) if origin is not None else ()
             if origin is Union and type(None) in args:
                 non_none = [a for a in args if a is not type(None)]
                 field_type = non_none[0] if non_none else field_type
-            
+
             origin = get_origin(field_type)
             args = get_args(field_type) if origin is not None else ()
-            
+
             # Convert nested Model
             try:
                 if isinstance(field_type, type) and issubclass(field_type, Model):
                     if isinstance(value, dict):
                         value = field_type(**value)
                         validated_dict[name] = value
-                # Convert List[Model]
                 elif origin is list and args:
                     inner_type = args[0]
                     if isinstance(inner_type, type) and issubclass(inner_type, Model) and isinstance(value, list):
                         value = [inner_type(**v) if isinstance(v, dict) else v for v in value]
                         validated_dict[name] = value
-                # Convert Dict[str, Model]
                 elif origin is dict and len(args) >= 2:
                     value_type = args[1]
                     if isinstance(value_type, type) and issubclass(value_type, Model) and isinstance(value, dict):
                         value = {k: value_type(**v) if isinstance(v, dict) else v for k, v in value.items()}
                         validated_dict[name] = value
             except ModelValidationError:
-                # Re-raise validation errors from nested models
                 raise
             except Exception:
-                # Other errors - skip this field
                 pass
     
     def __str__(self):
         """String representation of the model"""
         if self.__class__.PRETTY_REPR:
             fields = []
-            for name, value in self._data.items():
+            for name, value in self._ensure_data().items():
                 fields.append(f"{name}={repr(value)}")
             return f"{self.__class__.__name__} {' '.join(fields)}"
         return super().__str__()
-        
-    @property
-    def __dict__(self):
-        """Make the model dict-like"""
-        return self._data
-        
+
     def __getattr__(self, name):
-        """Handle attribute access for missing fields"""
+        """Handle attribute access — only called for attributes NOT in __dict__."""
         if name in self.__fields__:
-            return self._data.get(name)
+            # Field exists but wasn't in __dict__ — check _data (standard path)
+            try:
+                data = object.__getattribute__(self, '_data')
+            except AttributeError:
+                data = None
+            if data is not None:
+                return data.get(name)
+            return None  # Optional field with no default, not set
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     def __setattr__(self, name, value):
@@ -480,29 +604,18 @@ class Model(metaclass=ModelMetaclass):
         if name.startswith('_'):
             super().__setattr__(name, value)
             return
-        
-        # Allow setting during initialization
-        if getattr(self, '_initializing', False):
-            if hasattr(self, '_data'):
-                self._data[name] = value
-            super().__setattr__(name, value)
-            return
-        
+
         # Check if model is frozen
         config = getattr(self.__class__, 'model_config', {})
         if config.get('frozen', False):
             raise ValueError(f"'{self.__class__.__name__}' is frozen and does not support item assignment")
-        
+
         # Validate on assignment if enabled
         if config.get('validate_assignment', False) and name in self.__fields__:
-            # Validate just this field using field-specific validation
             field = self.__fields__[name]
             field_type = field.type
-            
-            # Basic type check
             origin = get_origin(field_type)
             if origin is Union:
-                # Handle Optional types
                 args = get_args(field_type)
                 non_none_types = [a for a in args if a is not type(None)]
                 if value is not None and non_none_types:
@@ -511,11 +624,16 @@ class Model(metaclass=ModelMetaclass):
                         raise ValueError(f"Field '{name}' must be of type {expected_type.__name__}")
             elif field_type and not isinstance(value, field_type):
                 raise ValueError(f"Field '{name}' must be of type {field_type.__name__}")
-        
-        # Set the value
-        if hasattr(self, '_data'):
-            self._data[name] = value
-        super().__setattr__(name, value)
+
+        # Update _data if it exists (standard path), otherwise __dict__ handles it
+        try:
+            data = object.__getattribute__(self, '_data')
+            if data is not None:
+                data[name] = value
+        except AttributeError:
+            pass
+        # Always update __dict__ for native access
+        self.__dict__[name] = value
     
     @classmethod
     def schema(cls) -> Dict:
@@ -524,16 +642,22 @@ class Model(metaclass=ModelMetaclass):
         
     @classmethod
     def validator(cls) -> 'StreamValidator':
-        """Create a validator for this model - BLAZE OPTIMIZED!"""
+        """Create a validator for this model - TURBO OPTIMIZED!
+
+        Uses TurboValidator for 2-3x speedup via bulk extraction architecture:
+        - Phase 1: Single-pass dict iteration (minimal FFI crossings)
+        - Phase 2: Pure Rust constraint validation (zero FFI)
+        - Result stored in Rust-owned Vec (lazy Python conversion)
+        """
         if cls._validator_instance is None:
             try:
-                from ._satya import BlazeValidatorPy
+                from ._satya import TurboValidatorPy
                 from .validator import StreamValidator
                 from decimal import Decimal
-                
-                # Create the BLAZE-optimized validator (zero-copy, semi-perfect hashing)
-                blaze = BlazeValidatorPy()
-                
+
+                # Create the TURBO validator (bulk extraction, 2-3x speedup!)
+                turbo = TurboValidatorPy()
+
                 # Add all fields
                 for field_name, field in cls.__fields__.items():
                     # Unwrap Optional[T] to get the actual type
@@ -544,50 +668,136 @@ class Model(metaclass=ModelMetaclass):
                         non_none = [a for a in args if a is not type(None)]
                         if non_none:
                             field_type = non_none[0]
-                    
-                    # Get the type string
-                    type_str = 'str' if field_type == str else \
-                              'int' if field_type == int else \
-                              'float' if field_type == float else \
-                              'bool' if field_type == bool else \
-                              'list' if get_origin(field_type) == list else \
-                              'dict' if get_origin(field_type) == dict else \
-                              'decimal' if field_type is Decimal else \
-                              'any'
-                    
-                    blaze.add_field(field_name, type_str, field.required)
-                
+
+                    # Get the type string - check __satya_type_info__ protocol first
+                    type_info = getattr(field_type, '__satya_type_info__', None)
+                    if type_info:
+                        type_str = type_info.get('base_type', 'any')
+                    elif field_type == str:
+                        type_str = 'str'
+                    elif field_type == int:
+                        type_str = 'int'
+                    elif field_type == float:
+                        type_str = 'float'
+                    elif field_type == bool:
+                        type_str = 'bool'
+                    elif field_type is list or get_origin(field_type) is list:
+                        type_str = 'list'
+                    elif field_type is dict or get_origin(field_type) is dict:
+                        type_str = 'dict'
+                    elif field_type is Decimal:
+                        type_str = 'decimal'
+                    elif isinstance(field_type, type) and issubclass(field_type, int) and not issubclass(field_type, bool):
+                        type_str = 'int'
+                    elif isinstance(field_type, type) and issubclass(field_type, float):
+                        type_str = 'float'
+                    elif isinstance(field_type, type) and issubclass(field_type, str):
+                        type_str = 'str'
+                    else:
+                        type_str = 'any'
+
+                    turbo.add_field(field_name, type_str, field.required)
+
                 # Set all constraints (ALL IN RUST NOW!)
                 for field_name, field in cls.__fields__.items():
-                    # Use ge/le if available, otherwise fall back to min_value/max_value
+                    # Merge auto-constraints from __satya_type_info__ with Field-level constraints
+                    field_type = field.type
+                    origin = get_origin(field_type)
+                    if origin is Union:
+                        args = get_args(field_type)
+                        non_none = [a for a in args if a is not type(None)]
+                        if non_none:
+                            field_type = non_none[0]
+                    type_info = getattr(field_type, '__satya_type_info__', None)
+                    auto_constraints = type_info.get('constraints', {}) if type_info else {}
+
+                    # Use ge/le if available, otherwise fall back to min_value/max_value, then auto-constraints
                     ge_val = field.ge if field.ge is not None else field.min_value
+                    if ge_val is None and 'ge' in auto_constraints:
+                        ge_val = auto_constraints['ge']
                     le_val = field.le if field.le is not None else field.max_value
-                    
-                    blaze.set_constraints(
+                    if le_val is None and 'le' in auto_constraints:
+                        le_val = auto_constraints['le']
+                    gt_val = field.gt if field.gt is not None else auto_constraints.get('gt')
+                    lt_val = field.lt if field.lt is not None else auto_constraints.get('lt')
+
+                    # String constraints with auto-constraint fallback
+                    min_length = field.min_length if field.min_length is not None else auto_constraints.get('min_length')
+                    max_length = field.max_length if field.max_length is not None else auto_constraints.get('max_length')
+                    pattern = field.pattern if field.pattern is not None else auto_constraints.get('pattern')
+                    email = (field.email if hasattr(field, 'email') else False) or auto_constraints.get('email', False)
+                    url = (field.url if hasattr(field, 'url') else False) or auto_constraints.get('url', False)
+
+                    turbo.set_constraints(
                         field_name,
-                        float(field.gt) if field.gt is not None else None,
+                        float(gt_val) if gt_val is not None else None,
                         float(ge_val) if ge_val is not None else None,
-                        float(field.lt) if field.lt is not None else None,
+                        float(lt_val) if lt_val is not None else None,
                         float(le_val) if le_val is not None else None,
-                        field.min_length,
-                        field.max_length,
-                        field.pattern,
-                        field.email if hasattr(field, 'email') else False,
-                        field.url if hasattr(field, 'url') else False,
+                        min_length,
+                        max_length,
+                        pattern,
+                        email,
+                        url,
                         field.enum_values if hasattr(field, 'enum_values') else None,
                         field.min_items,
                         field.max_items,
                         field.unique_items if hasattr(field, 'unique_items') else False,
                     )
-                
-                # Compile with BLAZE optimizations!
-                blaze.compile()
-                
+
+                # ═══ Link nested schemas BEFORE compile (so they're in the frozen Arc) ═══
+                def _unwrap_optional(ft):
+                    origin = get_origin(ft)
+                    if origin is Union:
+                        args = get_args(ft)
+                        non_none = [a for a in args if a is not type(None)]
+                        if non_none:
+                            return non_none[0]
+                    return ft
+
+                nested_fields = {}
+                list_model_fields = {}
+                for field_name, field in cls.__fields__.items():
+                    ft = _unwrap_optional(field.type)
+                    if isinstance(ft, type) and issubclass(ft, Model) and ft is not Model:
+                        nested_v = ft.validator()
+                        nested_turbo = getattr(nested_v, '_turbo_validator', None)
+                        if nested_turbo:
+                            turbo.set_nested_schema(field_name, nested_turbo)
+                            nested_fields[field_name] = ft
+                    else:
+                        ft_origin = get_origin(ft)
+                        if ft_origin is list:
+                            ft_args = get_args(ft)
+                            if ft_args and isinstance(ft_args[0], type) and issubclass(ft_args[0], Model):
+                                ft_args[0].validator()  # Ensure nested model is set up
+                                list_model_fields[field_name] = ft_args[0]
+                cls.__nested_fields__ = nested_fields
+                cls.__list_model_fields__ = list_model_fields
+                # Pre-compute: are ALL nested fields flat (no sub-nesting)?
+                cls.__nested_all_flat__ = bool(nested_fields) and not list_model_fields and all(
+                    not getattr(ft, '__nested_fields__', None) for ft in nested_fields.values()
+                )
+
+                # Compile with BLAZE cost-ordering optimizations!
+                turbo.compile()
+
+                # ═══ Pass defaults to Rust (eliminates Python defaults loop!) ═══
+                for field_name, field in cls.__fields__.items():
+                    if field.default is not None:
+                        turbo.set_default(field_name, field.default, isinstance(field.default, (list, dict, set)))
+                    elif field.default_factory is not None:
+                        turbo.set_default(field_name, field.default_factory(), True)
+
                 # Wrap in StreamValidator for compatibility
                 validator = StreamValidator()
                 _register_model(validator, cls)
-                validator._blaze_validator = blaze  # Use the new BLAZE validator
-                
+                validator._turbo_validator = turbo  # Use the new TURBO validator
+
+                # Cache turbo reference directly on class for fastest access
+                if cls.__turbo_fast_path__:
+                    cls.__turbo__ = turbo
+
                 cls._validator_instance = validator
             except Exception as e:
                 # Fallback to StreamValidator only
@@ -595,12 +805,23 @@ class Model(metaclass=ModelMetaclass):
                 validator = StreamValidator()
                 _register_model(validator, cls)
                 cls._validator_instance = validator
-        
+
         return cls._validator_instance
     
+    def _ensure_data(self) -> Dict:
+        """Get field data — from __dict__ (turbo fast path) or _data (standard path)."""
+        try:
+            data = object.__getattribute__(self, '_data')
+            if data is not None:
+                return data
+        except AttributeError:
+            pass
+        # Turbo fast path: fields are in __dict__ directly
+        return {name: self.__dict__.get(name) for name in self.__fields__ if name in self.__dict__}
+
     def dict(self) -> Dict:
         """Convert to dictionary"""
-        return self._data.copy()
+        return self._ensure_data().copy()
 
     # ---- Pydantic-like API ----
     @classmethod
@@ -619,14 +840,104 @@ class Model(metaclass=ModelMetaclass):
         return cls(**data)
 
     @classmethod
-    def model_validate_json(cls, json_str: str) -> 'Model':
-        """Validate JSON string and return a model instance (raises on error)."""
+    def model_validate_json(cls, json_str: Union[str, bytes]) -> 'Model':
+        """Validate JSON string/bytes and return a model instance (raises on error).
+
+        TURBO FAST PATH: Python creates instance, Rust parses JSON + validates + populates __dict__.
+        """
+        # Ensure validator is initialized (sets up cls.__turbo__)
+        if cls.__satya_validator_core__ is None:
+            cls.__satya_validator_core__ = cls.validator()
+        turbo = cls.__turbo__
+        if turbo is not None:
+            try:
+                json_bytes = json_str.encode() if isinstance(json_str, str) else json_str
+                instance = cls.__new__(cls)
+                # Single FFI call: JSON parse + validate + write to __dict__
+                turbo.validate_json_into_dict(json_bytes, instance.__dict__)
+                # Wrap nested dicts as Model instances
+                nested_fields = cls.__nested_fields__
+                if nested_fields:
+                    for name, ftype in nested_fields.items():
+                        val = instance.__dict__.get(name)
+                        if isinstance(val, dict):
+                            instance.__dict__[name] = _fast_construct_nested(ftype, val)
+                return instance
+            except Exception as e:
+                raise ModelValidationError([
+                    ValidationError(field="root", message=str(e), path=[])
+                ])
+        # Standard path
         data = load_json(json_str)
         if not isinstance(data, dict):
             raise ModelValidationError([
                 ValidationError(field='root', message='JSON must represent an object', path=['root'])
             ])
         return cls(**data)
+
+    @classmethod
+    def _construct_validated(cls, data: dict) -> 'Model':
+        """Create a Model instance from a pre-validated dict (no re-validation).
+
+        Used for nested models that have already been validated by Rust.
+        """
+        instance = cls.__new__(cls)
+        nested = cls.__nested_fields__
+        list_models = cls.__list_model_fields__
+        # FAST PATH: No nested models and no list models → just update __dict__
+        if nested is not None and not nested and not list_models:
+            instance.__dict__.update(data)
+            return instance
+        # CACHED PATH: Use pre-computed field info
+        if nested is not None:
+            for name, ftype in nested.items():
+                val = data.get(name)
+                if val is not None and isinstance(val, dict):
+                    data[name] = ftype._construct_validated(val)
+            if list_models:
+                for name, item_type in list_models.items():
+                    val = data.get(name)
+                    if val is not None and isinstance(val, list):
+                        data[name] = [
+                            item_type._construct_validated(item) if isinstance(item, dict) else item
+                            for item in val
+                        ]
+            instance.__dict__.update(data)
+            return instance
+        # FULL PATH: __nested_fields__ is None → inspect all fields
+        for field_name, field in cls.__fields__.items():
+            val = data.get(field_name)
+            if val is None:
+                continue
+            ft = field.type
+            origin = get_origin(ft)
+            if origin is Union:
+                args = get_args(ft)
+                non_none = [a for a in args if a is not type(None)]
+                if non_none:
+                    ft = non_none[0]
+                    origin = get_origin(ft)
+            if isinstance(ft, type) and issubclass(ft, Model) and ft is not Model:
+                if isinstance(val, dict):
+                    data[field_name] = ft._construct_validated(val)
+            elif origin is list:
+                inner_args = get_args(ft) if origin else ()
+                if inner_args and isinstance(inner_args[0], type) and issubclass(inner_args[0], Model):
+                    if isinstance(val, list):
+                        data[field_name] = [
+                            inner_args[0]._construct_validated(item) if isinstance(item, dict) else item
+                            for item in val
+                        ]
+            elif origin is dict:
+                inner_args = get_args(ft) if origin else ()
+                if len(inner_args) >= 2 and isinstance(inner_args[1], type) and issubclass(inner_args[1], Model):
+                    if isinstance(val, dict):
+                        data[field_name] = {
+                            k: inner_args[1]._construct_validated(v) if isinstance(v, dict) else v
+                            for k, v in val.items()
+                        }
+        instance.__dict__.update(data)
+        return instance
     
     @classmethod
     def model_validate_fast(cls, data: Dict[str, Any]):
@@ -729,7 +1040,7 @@ class Model(metaclass=ModelMetaclass):
         validator = cls.validator()
         return validator.validate_json(data, mode="ndjson", streaming=streaming)
 
-    def model_dump(self, *, 
+    def model_dump(self, *,
                    mode: str = 'python',
                    include: Optional[set] = None,
                    exclude: Optional[set] = None,
@@ -738,47 +1049,60 @@ class Model(metaclass=ModelMetaclass):
                    exclude_defaults: bool = False,
                    exclude_none: bool = False) -> Dict[str, Any]:
         """Dump model data as a dict (Pydantic V2 compatible)."""
+        # FAST PATH: No filters → direct dict construction
+        cls = self.__class__
+        no_filters = (include is None and exclude is None and not by_alias
+                      and not exclude_unset and not exclude_defaults and not exclude_none)
+        if no_filters:
+            # Turbo models use __dict__, standard models use _data
+            src = self.__dict__ if cls.__turbo__ else getattr(self, '_data', self.__dict__)
+            # ULTRA-FAST: No nested models → skip isinstance checks
+            if not cls.__nested_fields__:
+                return {name: src[name] for name in cls.__field_names_list__ if name in src}
+            # With nested models → need isinstance checks
+            d = {}
+            for name in cls.__field_names_list__:
+                if name in src:
+                    v = src[name]
+                    if isinstance(v, Model):
+                        d[name] = v.model_dump()
+                    elif isinstance(v, list):
+                        d[name] = [x.model_dump() if isinstance(x, Model) else x for x in v]
+                    else:
+                        d[name] = v
+            return d
+
+        # SLOW PATH: With filters
         def _dump_val(v):
             if isinstance(v, Model):
-                return v.model_dump(mode=mode, include=include, exclude=exclude, 
+                return v.model_dump(mode=mode, include=include, exclude=exclude,
                                    by_alias=by_alias, exclude_unset=exclude_unset,
                                    exclude_defaults=exclude_defaults, exclude_none=exclude_none)
             if isinstance(v, list):
                 return [_dump_val(x) for x in v]
             return v
-        
-        # Start with all data
+
         d = {}
-        for k, v in self._data.items():
-            # Apply include/exclude filters
+        for k, v in self._ensure_data().items():
             if include and k not in include:
                 continue
             if exclude and k in exclude:
                 continue
-            
-            # Apply exclude_unset (skip fields not explicitly set)
-            if exclude_unset and k not in self._data:
+            if exclude_unset and k not in self._ensure_data():
                 continue
-            
-            # Apply exclude_defaults (skip fields with default values)
             if exclude_defaults:
                 field = self.__fields__.get(k)
                 if field and field.default is not None and v == field.default:
                     continue
-            
-            # Apply exclude_none
             if exclude_none and v is None:
                 continue
-            
-            # Use alias if requested
             field = self.__fields__.get(k)
             key = field.alias if (by_alias and field and field.alias) else k
-            
             d[key] = _dump_val(v)
-        
+
         return d
 
-    def model_dump_json(self, *, 
+    def model_dump_json(self, *,
                         mode: str = 'python',
                         include: Optional[set] = None,
                         exclude: Optional[set] = None,
@@ -788,17 +1112,39 @@ class Model(metaclass=ModelMetaclass):
                         exclude_none: bool = False,
                         indent: Optional[int] = None) -> str:
         """Dump model data as a JSON string (Pydantic V2 compatible)."""
+        # ULTRA-FAST PATH: No filters, no indent, no nested models → __dict__ → JSON in one Rust call
+        cls = self.__class__
+        no_filters = (include is None and exclude is None and not by_alias
+                      and not exclude_unset and not exclude_defaults and not exclude_none)
+        if no_filters and indent is None and not cls.__nested_fields__:
+            try:
+                from ._satya import TurboValidatorPy
+                if cls.__turbo__:
+                    # Turbo: __dict__ IS the field data → iterate directly (fastest)
+                    return TurboValidatorPy.dict_to_json_direct(self.__dict__)
+                else:
+                    src = getattr(self, '_data', self.__dict__)
+                    return TurboValidatorPy.dict_to_json_fields(src, cls.__field_names_list__)
+            except Exception:
+                pass
         data = self.model_dump(mode=mode, include=include, exclude=exclude,
                               by_alias=by_alias, exclude_unset=exclude_unset,
                               exclude_defaults=exclude_defaults, exclude_none=exclude_none)
+        if indent is None:
+            try:
+                from ._satya import TurboValidatorPy
+                return TurboValidatorPy.dict_to_json(data)
+            except Exception:
+                pass
         return json.dumps(data, indent=indent)
     
     def model_copy(self, *, update: Optional[Dict[str, Any]] = None, deep: bool = False) -> 'Model':
         """Create a copy of the model, optionally updating fields."""
+        src = self._ensure_data()
         if deep:
-            data = copy.deepcopy(self._data)
+            data = copy.deepcopy(src)
         else:
-            data = self._data.copy()
+            data = src.copy()
         
         if update:
             data.update(update)
@@ -1342,9 +1688,16 @@ def __getattr__(name: str):
 from .special_types import (
     SecretStr, SecretBytes,
     FilePath, DirectoryPath, NewPath,
-    EmailStr, HttpUrl,
-    PositiveInt, NegativeInt, NonNegativeInt,
-    PositiveFloat, NegativeFloat, NonNegativeFloat,
+    EmailStr, HttpUrl, AnyUrl, AnyHttpUrl, FileUrl, FtpUrl, WebsocketUrl,
+    IPvAnyAddress, IPvAnyInterface, IPvAnyNetwork, NameEmail,
+    PostgresDsn, MySQLDsn, RedisDsn, MongoDsn, KafkaDsn,
+    PositiveInt, NegativeInt, NonNegativeInt, NonPositiveInt,
+    PositiveFloat, NegativeFloat, NonNegativeFloat, NonPositiveFloat, FiniteFloat,
+    StrictStr, StrictInt, StrictFloat, StrictBool, StrictBytes,
+    conint, confloat, constr, conbytes, conlist, conset, confrozenset, condecimal,
+    UUID1, UUID3, UUID4, UUID5,
+    FutureDate, PastDate, FutureDatetime, PastDatetime, AwareDatetime, NaiveDatetime,
+    ByteSize, Json,
 )
 
 # Import serializers
@@ -1390,7 +1743,7 @@ __all__ = [
     'JSONSchemaCompiler',
     # JSON loader
     'load_json',
-    # Special types (NEW!)
+    # Special types
     'SecretStr',
     'SecretBytes',
     'FilePath',
@@ -1398,12 +1751,54 @@ __all__ = [
     'NewPath',
     'EmailStr',
     'HttpUrl',
+    'AnyUrl',
+    'AnyHttpUrl',
+    'FileUrl',
+    'FtpUrl',
+    'WebsocketUrl',
+    'IPvAnyAddress',
+    'IPvAnyInterface',
+    'IPvAnyNetwork',
+    'NameEmail',
+    'PostgresDsn',
+    'MySQLDsn',
+    'RedisDsn',
+    'MongoDsn',
+    'KafkaDsn',
     'PositiveInt',
     'NegativeInt',
     'NonNegativeInt',
+    'NonPositiveInt',
     'PositiveFloat',
     'NegativeFloat',
     'NonNegativeFloat',
+    'NonPositiveFloat',
+    'FiniteFloat',
+    'StrictStr',
+    'StrictInt',
+    'StrictFloat',
+    'StrictBool',
+    'StrictBytes',
+    'conint',
+    'confloat',
+    'constr',
+    'conbytes',
+    'conlist',
+    'conset',
+    'confrozenset',
+    'condecimal',
+    'UUID1',
+    'UUID3',
+    'UUID4',
+    'UUID5',
+    'FutureDate',
+    'PastDate',
+    'FutureDatetime',
+    'PastDatetime',
+    'AwareDatetime',
+    'NaiveDatetime',
+    'ByteSize',
+    'Json',
     # Web framework support (TurboAPI enhancement)
     'web',
     # Performance profiling
