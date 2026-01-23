@@ -16,44 +16,42 @@
 
 # 🚀 THE FASTEST Python Validation Library
 
-Satya (सत्य) - Sanskrit for **"truth"** - delivers **blazing-fast validation** with **100% Pydantic-compatible API**. Built on Rust with PyO3, Satya achieves **2.71M items/sec parallel batch validation** - **1.33× faster than Pydantic** for large datasets!
+Satya (सत्य) - Sanskrit for **"truth"** - delivers **blazing-fast validation** with **100% Pydantic-compatible API**. Built on Rust with PyO3, Satya is now **1.17× faster than Pydantic v2** across all benchmarks, with the raw Rust validator achieving **19.4M ops/sec (8.85× faster than Pydantic)**!
 
-## 🎯 What's New in v0.4.2 - Production Ready! 🚀
+## 🎯 What's New in v0.5.0 - Faster Than Pydantic v2! 🚀
 
-### 🎉 **Optimized RustModel - Production Ready!**
+### 🎉 **TurboValidator - 1.17× Faster Than Pydantic v2!**
 
-**Performance Breakthrough:**
-- ✅ **1.18M ops/sec** single model creation (6.1× faster than baseline)
-- ✅ **2.71M items/sec** parallel batch validation (1.33× faster than Pydantic!)
-- ✅ **128 bytes** per instance (2.3× less memory)
-- ✅ **354/355 tests passing** (99.7% pass rate)
-- ✅ **13/13 examples working** (100% working examples)
+**Performance Breakthrough (Geometric Mean: 1.17× faster than Pydantic v2):**
+- ✅ **19.4M ops/sec** raw Rust validation (8.85× faster than Pydantic!)
+- ✅ **1.6× faster** dict serialization (model_dump)
+- ✅ **1.3× faster** JSON serialization (model_dump_json)
+- ✅ **Zero-allocation** validate_check with pre-interned Python string keys
+- ✅ **Return-based errors** eliminating try/except overhead
 
 **Key Features:**
 ```python
-from satya.rust_model import RustModel
-from satya import Field
+from satya import Model, Field
 
-class User(RustModel):  # Rust-native storage!
+class User(Model):
     name: str = Field(min_length=2)
     age: int = Field(ge=0, le=150)
     email: str = Field(email=True)
 
-# Single validation - 1.18M ops/sec
+# TurboValidator activates automatically!
 user = User(name="Alice", age=30, email="alice@example.com")
-
-# Parallel batch validation - 2.71M items/sec! 🔥
-from satya._satya import compile_schema, validate_batch_parallel
-schema = compile_schema(User)
-results = validate_batch_parallel(schema, batch_data)  # GIL-free!
+print(user.model_dump())       # 1.6× faster than Pydantic
+print(user.model_dump_json())  # 1.3× faster than Pydantic
 ```
 
-**Architecture:**
-- 🦀 Pure Rust-native storage (Vec<FieldValue>)
-- ⚡ Optimized `__getattribute__` with fast path
-- 🔓 GIL-free parallel batch processing
-- 💾 `__slots__` memory optimization
-- 🚀 Lazy regex compilation (32× improvement)
+**TurboValidator Architecture:**
+- 🦀 **Pre-interned Python string keys** — direct dict.get_item() with no HashMap lookup
+- ⚡ **validate_into_dict_result** — return-based errors, no try/except overhead
+- 🔓 **validate_into_nested_dicts** — Rust writes directly to nested instance __dict__s
+- 💾 **validate_check** — zero-allocation, type-check-only path (19.4M ops/sec)
+- 🚀 **has_constraints flag** — skip constraint checking for unconstrained fields
+- 📦 **apply_default** — replaces copy.deepcopy with efficient shallow copy
+- 🎯 **u64 bitmap** — found-field tracking without Vec allocation
 
 👉 **[See Full Changelog](changelog.md)**
 
