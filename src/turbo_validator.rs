@@ -233,3 +233,173 @@ pub struct TurboValidatorPy {
     // Default values stored separately (Py<PyAny> can't be cloned in free-threaded builds)
     defaults: HashMap<String, (Py<PyAny>, bool)>,  // (value, is_mutable)
 }
+
+#[pymethods]
+impl TurboValidatorPy {
+    #[new]
+    fn new() -> Self {
+        Self {
+            fields: Vec::new(),
+            field_map: HashMap::new(),
+            schema: None,
+            defaults: HashMap::new(),
+        }
+    }
+
+    /// Add a field to the schema
+    fn add_field(&mut self, name: String, type_str: String, required: bool) {
+        let field_type = match type_str.as_str() {
+            "str" => FieldType::String,
+            "int" => FieldType::Int,
+            "float" => FieldType::Float,
+            "bool" => FieldType::Bool,
+            "list" => FieldType::List,
+            "dict" => FieldType::Dict,
+            "decimal" => FieldType::Decimal,
+            _ => FieldType::Any,
+        };
+
+        let idx = self.fields.len();
+        self.field_map.insert(name.clone(), idx);
+
+        self.fields.push(TurboField {
+            name,
+            index: idx,
+            field_type,
+            required,
+            strict: false,
+            gt: None,
+            ge: None,
+            lt: None,
+            le: None,
+            multiple_of: None,
+            finite: false,
+            min_length: None,
+            max_length: None,
+            compiled_pattern: None,
+            email: false,
+            url: false,
+            enum_values: None,
+            min_items: None,
+            max_items: None,
+            unique_items: false,
+            has_constraints: false,
+            nested_schema: None,
+        });
+    }
+
+    /// Set constraints for a field (with pre-compiled regex!)
+    fn set_constraints(
+        &mut self,
+        field_name: String,
+        gt: Option<f64>,
+        ge: Option<f64>,
+        lt: Option<f64>,
+        le: Option<f64>,
+        min_length: Option<usize>,
+        max_length: Option<usize>,
+        pattern: Option<String>,
+        email: bool,
+        url: bool,
+        enum_values: Option<Vec<String>>,
+        min_items: Option<usize>,
+        max_items: Option<usize>,
+        unique_items: bool,
+    ) -> PyResult<()> {
+        if let Some(&idx) = self.field_map.get(&field_name) {
+            if let Some(field) = self.fields.get_mut(idx) {
+                field.gt = gt;
+                field.ge = ge;
+                field.lt = lt;
+                field.le = le;
+                field.min_length = min_length;
+                field.max_length = max_length;
+                // Pre-compile regex at schema build time (not per-validation!)
+                field.compiled_pattern = pattern.and_then(|p| regex::Regex::new(&p).ok());
+                field.email = email;
+                field.url = url;
+                field.enum_values = enum_values;
+                field.min_items = min_items;
+                field.max_items = max_items;
+                field.unique_items = unique_items;
+                // Pre-compute constraint flag
+                field.has_constraints = field.gt.is_some() || field.ge.is_some()
+                    || field.lt.is_some() || field.le.is_some()
+                    || field.min_length.is_some() || field.max_length.is_some()
+                    || field.compiled_pattern.is_some()
+                    || field.email || field.url
+                    || field.enum_values.is_some()
+                    || field.min_items.is_some() || field.max_items.is_some()
+                    || field.unique_items;
+                return Ok(());
+            }
+        }
+        Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
+            format!("Field '{}' not found", field_name)
+        ))
+    }
+
+    /// Compile and optimize the schema (BLAZE cost-ordering)
+    fn compile(&mut self, py: Python<'_>) {
+        // BLAZE: Reorder fields by validation cost (cheapest first for fail-fast)
+        let mut field_costs: Vec<(usize, u32)> = self.fields.iter().enumerate().map(|(idx, f)| {
+            let type_cost = match f.field_type {
+                FieldType::Bool => 0,
+                FieldType::Int => 1,
+                FieldType::Float => 2,
+                FieldType::String => 3,
+                FieldType::List => 4,
+                FieldType::Dict => 5,
+                FieldType::Decimal => 6,
+                FieldType::Any => 7,
+            };
+            let constraint_cost =
+                (if f.gt.is_some() || f.ge.is_some() || f.lt.is_some() || f.le.is_some() { 1 } else { 0 }) +
+                (if f.min_length.is_some() || f.max_length.is_some() { 1 } else { 0 }) +
+                (if f.compiled_pattern.is_some() { 3 } else { 0 }) +
+                (if f.email || f.url { 2 } else { 0 });
+            (idx, type_cost * 10 + constraint_cost)
+        }).collect();
+
+        field_costs.sort_by_key(|(_, cost)| *cost);
+        let validation_order = field_costs.iter().map(|(idx, _)| *idx).collect();
+
+        // Pre-intern field names as Python strings for fast dict lookup
+        let py_names: Vec<Py<PyString>> = self.fields.iter()
+            .map(|f| PyString::intern(py, &f.name).clone().unbind())
+            .collect();
+
+        self.schema = Some(Arc::new(TurboSchema {
+            fields: self.fields.clone(),
+            field_map: self.field_map.clone(),
+            validation_order,
+            py_names,
+        }));
+    }
+
+    /// Store a Python default value for a field (called from Python's validator() setup)
+    fn set_default(&mut self, field_name: String, value: Py<PyAny>, is_mutable: bool) -> PyResult<()> {
+        if self.field_map.contains_key(&field_name) {
+            self.defaults.insert(field_name, (value, is_mutable));
+            return Ok(());
+        }
+        Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
+            format!("Field '{}' not found", field_name)
+        ))
+    }
+
+    /// Link a nested TurboSchema for recursive validation
+    fn set_nested_schema(&mut self, field_name: String, nested_validator: &TurboValidatorPy) -> PyResult<()> {
+        if let Some(&idx) = self.field_map.get(&field_name) {
+            if let Some(field) = self.fields.get_mut(idx) {
+                field.nested_schema = nested_validator.schema.clone();
+                return Ok(());
+            }
+        }
+        Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
+            format!("Field '{}' not found", field_name)
+        ))
+    }
+
+    /// Validate a dict and return a PyDict directly (no TurboValue intermediate!)
+    /// This is the key performance optimization: validate + build PyDict in one pass.
