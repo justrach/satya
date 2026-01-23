@@ -1163,3 +1163,86 @@ impl TurboValidatorPy {
 
     /// Ultra-fast validate: zero allocation, type-check only for unconstrained fields.
     /// Returns None on success, raises ValueError on failure.
+    /// ~40% faster than validate() for unconstrained models.
+    fn validate_check(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+
+        // Direct dict lookup with pre-interned keys — no HashMap, no key conversion
+        for (idx, field) in schema.fields.iter().enumerate() {
+            let value = match data.get_item(&schema.py_names[idx])? {
+                Some(v) => v,
+                None => {
+                    if field.required {
+                        return Err(PyErr::new::<PyValueError, _>(
+                            format!("Required field '{}' is missing", field.name)
+                        ));
+                    }
+                    continue;
+                }
+            };
+
+            if value.is_none() {
+                if field.required {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Required field '{}' cannot be None", field.name)
+                    ));
+                }
+                continue;
+            }
+
+            if !field.has_constraints {
+                // Fast path: type-check only (no value extraction!)
+                let type_ok = match field.field_type {
+                    FieldType::String => value.is_instance_of::<PyString>(),
+                    FieldType::Int => {
+                        !value.is_instance_of::<PyBool>() && value.is_instance_of::<PyInt>()
+                    }
+                    FieldType::Float => {
+                        value.is_instance_of::<PyFloat>() ||
+                        (value.is_instance_of::<PyInt>() && !value.is_instance_of::<PyBool>())
+                    }
+                    FieldType::Bool => value.is_instance_of::<PyBool>(),
+                    FieldType::List => value.is_instance_of::<PyList>(),
+                    FieldType::Dict => value.is_instance_of::<PyDict>(),
+                    _ => true, // Any, Decimal: accept anything
+                };
+                if !type_ok {
+                    return Err(PyErr::new::<PyValueError, _>(
+                        format!("Field '{}' has wrong type", field.name)
+                    ));
+                }
+            } else {
+                // Constrained: full validation (with value extraction)
+                Self::validate_field_inline(py, field, &value)?;
+            }
+        }
+
+        Ok(py.None())
+    }
+
+    /// Validate and return a Python dict (backward-compatible with BlazeValidator)
+    fn validate_dict(&self, py: Python<'_>, data: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
+        let instance = self.validate(py, data)?;
+        instance.to_py_dict(py)
+    }
+
+    /// Batch validate a list of dicts
+    fn validate_batch(&self, py: Python<'_>, data_list: &Bound<'_, PyList>) -> PyResult<Vec<TurboModelInstance>> {
+        let schema = self.schema.as_ref().ok_or_else(|| {
+            PyErr::new::<PyValueError, _>("TurboValidator not compiled. Call compile() first.")
+        })?;
+
+        let mut results = Vec::with_capacity(data_list.len());
+        for item in data_list.iter() {
+            let dict = item.downcast::<PyDict>().map_err(|_| {
+                PyErr::new::<PyValueError, _>("Batch items must be dicts")
+            })?;
+            results.push(Self::validate_inner(py, schema, dict)?);
+        }
+        Ok(results)
+    }
+}
+
+// Internal implementation (not exposed to Python)
