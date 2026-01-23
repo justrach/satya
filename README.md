@@ -906,26 +906,29 @@ validator.set_batch_size(10000)  # Optimal for most workloads
 ```
 
 ## Current Status:
-Satya v0.4.2 is **production-ready** with optimized RustModel! Key achievements:
+Satya v0.5.0 is **1.17× faster than Pydantic v2** with TurboValidator! Key achievements:
 
-**Performance:**
-- **🚀 2.71M items/sec** parallel batch validation (1.33× faster than Pydantic!)
-- **⚡ 1.18M ops/sec** single model creation (6.1× faster than baseline)
-- **💾 128 bytes** per instance (2.3× less memory)
-- **🦀 Pure Rust-native storage** with GIL-free processing
+**Performance (vs Pydantic v2.12.0):**
+- **🚀 1.17× faster** geometric mean across all benchmarks
+- **⚡ 19.4M ops/sec** raw Rust validation (8.85× faster!)
+- **📦 1.6× faster** dict serialization (model_dump)
+- **🔤 1.3× faster** JSON serialization (model_dump_json)
+- **🦀 Zero-allocation** validate_check path
 
 **Quality:**
-- **✅ 354/355 tests passing** (99.7% pass rate)
-- **✅ 13/13 examples working** (100% coverage)
-- **✅ Zero breaking changes**
 - **✅ Python 3.8-3.14 support** (including free-threaded builds)
+- **✅ 100% Pydantic-compatible API**
+- **✅ Zero breaking changes** from v0.4.x
 
-**Architecture:**
-- ✅ Rust-native storage (Vec<FieldValue>)
-- ✅ Optimized `__getattribute__` with fast path
-- ✅ GIL-free parallel batch processing
-- ✅ Lazy regex compilation (32× improvement)
-- ✅ `__slots__` memory optimization
+**TurboValidator Architecture:**
+- ✅ Pre-interned `Py<PyString>` keys via `PyString::intern()`
+- ✅ validate_into_dict_result with return-based error handling
+- ✅ validate_into_nested_dicts for zero-copy nested models
+- ✅ has_constraints flag for fast-path type-check-only validation
+- ✅ u64 bitmap found-field tracking (no Vec allocation)
+- ✅ apply_default replacing copy.deepcopy
+- ✅ ModelValidationError with `__slots__` and lazy error creation
+- ✅ BLAZE cost-ordering (cheapest validations first for fail-fast)
 
 ## Acknowledgments:
 - **Pydantic project** for setting the standard in Python data validation and inspiring our API design
