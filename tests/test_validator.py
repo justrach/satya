@@ -1,11 +1,7 @@
-import os
-import sys
 import unittest
 from typing import List, Dict, Any, Iterator
 import json
 
-# Add src to Python path for proper imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import satya
 from satya import StreamValidator, ValidationResult, ValidationError
 

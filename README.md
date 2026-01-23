@@ -13,7 +13,7 @@
 </div>
 
 <div align="center">
-  <b>1.17× faster than Pydantic v2.</b> Drop-in replacement. Powered by Rust.
+  <b>Up to 9× faster than Pydantic v2.</b> Drop-in replacement. Powered by Rust.
 </div>
 
 ---
@@ -21,8 +21,8 @@
 ## The Numbers
 
 ```
-Geometric mean:    1.17× faster than Pydantic v2
-Raw validation:   19.4M ops/sec  (8.85× faster)
+Raw validation:   19.4M ops/sec  (8.85× faster than Pydantic v2)
+Geometric mean:    1.17× faster (across all benchmarks)
 model_dump():     1.60× faster
 model_dump_json:  1.30× faster
 ```

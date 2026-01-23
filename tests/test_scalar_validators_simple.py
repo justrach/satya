@@ -2,13 +2,8 @@
 Simple tests for scalar validators to ensure Rust-backed validation works.
 """
 
-import os
-import sys
 import unittest
 import time
-
-# Add src to Python path for proper imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from satya import (
     StringValidator,

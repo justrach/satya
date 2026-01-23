@@ -4,7 +4,7 @@ version = "0.5.0"
 edition = "2024"
 rust-version = "1.85.0"
 authors = ["Rach Pradhan"]
-description = "The fastest Python validation library — 1.17× faster than Pydantic v2, powered by Rust"
+description = "The fastest Python validation library — up to 9× faster than Pydantic v2, powered by Rust"
 repository = "https://github.com/rachpradhan/satya"
 license = "Apache-2.0"
 

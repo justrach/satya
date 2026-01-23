@@ -1,11 +1,7 @@
-import os
-import sys
 import unittest
 import json
 from unittest.mock import patch, MagicMock
 
-# Add src to Python path for proper imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from satya.json_loader import load_json
 
 
