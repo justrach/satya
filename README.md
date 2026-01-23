@@ -94,47 +94,35 @@ print(user.model_dump_json())  # 1.3× faster than Pydantic
 pip install satya
 ```
 
-### Option 1: RustModel (Recommended for Performance)
-```python
-from satya.rust_model import RustModel
-from satya import Field
-
-class User(RustModel):  # Rust-native storage!
-    name: str = Field(min_length=2)
-    age: int = Field(ge=0, le=150)
-    email: str = Field(email=True)
-
-# Single validation - 1.18M ops/sec
-user = User(name="Alice", age=30, email="alice@example.com")
-print(user.name)  # Direct field access
-print(user.dict())  # Convert to dict
-
-# Parallel batch validation - 2.71M items/sec! 🔥
-from satya._satya import compile_schema, validate_batch_parallel
-
-schema = compile_schema(User)
-batch_data = [
-    {"name": "Alice", "age": 30, "email": "alice@example.com"},
-    {"name": "Bob", "age": 25, "email": "bob@example.com"},
-    # ... thousands more
-]
-results = validate_batch_parallel(schema, batch_data)  # GIL-free!
-print(f"✅ Validated {len(results)} users at 2.71M items/sec!")
-```
-
-### Option 2: Traditional Model (Pydantic-compatible)
+### Usage (Pydantic-compatible API, TurboValidator under the hood)
 ```python
 from satya import Model, Field
 
 class User(Model):
-    name: str
+    name: str = Field(min_length=2)
     age: int = Field(ge=0, le=150)
     email: str = Field(email=True)
 
+# TurboValidator activates automatically — 1.17× faster than Pydantic v2!
 user = User(name="Alice", age=30, email="alice@example.com")
+print(user.name)                # Direct attribute access
+print(user.model_dump())        # 1.6× faster than Pydantic
+print(user.model_dump_json())   # 1.3× faster than Pydantic
+
+# Nested models — Rust writes directly to nested instance __dict__s
+class Address(Model):
+    city: str
+    zip_code: str
+
+class UserWithAddress(Model):
+    name: str
+    address: Address
+
+user = UserWithAddress(name="Alice", address={"city": "NYC", "zip_code": "10001"})
+print(user.address.city)  # "NYC" — zero-overhead nested construction
 ```
 
-**That's it!** Choose RustModel for maximum performance or Model for Pydantic compatibility! 🎉
+**That's it!** Drop-in Pydantic replacement with automatic Rust-powered validation! 🎉
 
 ---
 
