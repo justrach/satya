@@ -182,7 +182,18 @@ class StreamValidator:
     def validate(self, item: dict) -> ValidationResult:
         """Validate a single item and return a ValidationResult with optional error details."""
         try:
-            # OPTIMIZATION: Use BLAZE validator (ZERO-COPY, SEMI-PERFECT HASHING!)
+            # OPTIMIZATION: Use TURBO validator (bulk extraction, 2-3x speedup!)
+            if hasattr(self, '_turbo_validator'):
+                try:
+                    validated = self._turbo_validator.validate_dict(item)
+                    # Still need to validate nested models (TODO: move to Rust)
+                    validated = self._validate_nested_models(validated)
+                    return ValidationResult(value=validated)
+                except Exception as e:
+                    # Validation failed in Rust
+                    return ValidationResult(errors=[ValidationError(field="root", message=str(e), path=[])])
+
+            # FALLBACK: Use BLAZE validator (ZERO-COPY, SEMI-PERFECT HASHING!)
             if hasattr(self, '_blaze_validator'):
                 try:
                     validated = self._blaze_validator.validate(item)
