@@ -128,35 +128,28 @@ print(user.address.city)  # "NYC" — zero-overhead nested construction
 
 ## 🎯 When to Use Satya
 
-### Use Satya (RustModel) For:
+### Use Satya For:
 
-✅ **Batch Processing (1K+ items)**
-- 2.71M items/sec sustained throughput
-- 1.33× faster than Pydantic
-- GIL-free parallel validation
-- Perfect for data pipelines
-
-✅ **Streaming Data**
-- Real-time validation
-- Low latency per chunk
-- High throughput pipelines
+✅ **Drop-in Pydantic Replacement**
+- 1.17× faster than Pydantic v2 (geometric mean)
+- 100% API compatible — just change the import
+- Same `Model`, `Field`, `model_dump()`, `model_dump_json()` API
 
 ✅ **High-Throughput APIs**
-- ETL workflows
-- Data pipelines
-- Log processing
-- Event streaming
+- 1.6× faster dict serialization
+- 1.3× faster JSON serialization
+- 8.85× faster raw validation (Rust-only path)
 
-✅ **Memory-Constrained Environments**
-- 2.3× less memory per instance
-- Efficient Rust storage
+✅ **Data Pipelines & ETL**
+- 19.4M ops/sec raw validation throughput
+- Zero-allocation validate_check for type-only verification
+- Batch processing support
 
-### Use Pydantic For:
-
-- Single instance validation (1.56× faster)
-- Simple models without heavy constraints
-- Ecosystem compatibility (FastAPI, etc.)
-- Mature tooling and documentation
+✅ **Performance-Critical Applications**
+- Pre-interned string keys eliminate HashMap lookups
+- Return-based errors avoid try/except overhead
+- u64 bitmap field tracking (no Vec allocation)
+- Nested models: Rust writes directly to instance __dict__s
 
 ---
 
