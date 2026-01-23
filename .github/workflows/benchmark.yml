@@ -79,14 +79,19 @@ jobs:
 
   benchmark-free-threaded:
     runs-on: ubuntu-latest
-    name: "benchmark (3.13t free-threaded)"
+    strategy:
+      matrix:
+        python-version: ['3.13t', '3.14t']
+      fail-fast: false
+    name: "benchmark (${{ matrix.python-version }} free-threaded)"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.13t
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13t'
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -105,7 +110,7 @@ jobs:
       - name: Run benchmark
         working-directory: /tmp
         run: |
-          echo "## Python 3.13t (free-threaded) Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Python ${{ matrix.python-version }} (free-threaded) Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           python $GITHUB_WORKSPACE/tests/benchmark_vs_pydantic.py 2>&1 | tee benchmark_output.txt
           cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
@@ -113,7 +118,7 @@ jobs:
 
       - name: Run thread scaling test
         run: |
-          echo "## Thread Scaling (free-threaded Python)" >> $GITHUB_STEP_SUMMARY
+          echo "## Thread Scaling (${{ matrix.python-version }} free-threaded)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           python -c "
           import time, sys, concurrent.futures
@@ -153,7 +158,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: benchmark-py3.13t
+          name: benchmark-py${{ matrix.python-version }}
           path: /tmp/benchmark_output.txt
 
   summary:

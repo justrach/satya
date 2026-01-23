@@ -43,14 +43,19 @@ jobs:
 
   test-free-threaded:
     runs-on: ubuntu-latest
-    name: "test (3.13t free-threaded)"
+    strategy:
+      matrix:
+        python-version: ['3.13t', '3.14t']
+      fail-fast: false
+    name: "test (${{ matrix.python-version }} free-threaded)"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.13t (free-threaded)
+      - name: Set up Python ${{ matrix.python-version }} (free-threaded)
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13t'
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
