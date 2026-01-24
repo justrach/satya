@@ -102,6 +102,10 @@ jobs:
     runs-on: macos-latest
     needs: [check-version]
     if: needs.check-version.outputs.should_publish == 'true'
+    strategy:
+      matrix:
+        target: [x86_64-apple-darwin, aarch64-apple-darwin]
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -115,12 +119,12 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: universal2-apple-darwin
+          target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-universal2
+          name: wheels-macos-${{ matrix.target }}
           path: dist
 
   sdist:
